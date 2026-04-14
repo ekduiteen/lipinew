@@ -1,0 +1,43 @@
+.nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4.5rem;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 50;
+  safe-area-inset-bottom: env(safe-area-inset-bottom);
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  text-decoration: none;
+  color: var(--fg-muted);
+  transition: color 0.15s;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.tab.active { color: var(--accent); }
+.tab:hover:not(.active) { color: var(--fg); }
+
+.icon { font-size: 1.3rem; line-height: 1; }
+
+.labelNe {
+  font-size: 0.75rem;
+  font-family: var(--font-nepali);
+  font-weight: 500;
+}
+
+.labelEn {
+  font-size: 0.6rem;
+  font-family: var(--font-latin);
+  color: inherit;
+  opacity: 0.65;
+}

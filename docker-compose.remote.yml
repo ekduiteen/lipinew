@@ -1,0 +1,195 @@
+# ============================================================================
+# LIPI — Remote Server Stack (Backend + Infrastructure)
+# PostgreSQL | Valkey | MinIO | vLLM (Qwen) | ML Service
+# ============================================================================
+
+services:
+
+  # ─── Backend: FastAPI ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lipi-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lipi:${POSTGRES_PASSWORD}@postgres:5432/lipi
+      VALKEY_URL: valkey://valkey:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET_AUDIO: lipi-audio
+      MINIO_BUCKET_TTS: lipi-tts
+      VLLM_URL: http://vllm:8080
+      VLLM_MODEL: lipi
+      VLLM_TIMEOUT: 30
+      ML_SERVICE_URL: http://ml:5001
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      ENABLE_API_FALLBACK: "true"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRY_HOURS: 168
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      APP_URL: http://localhost:8000
+      LOG_LEVEL: INFO
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - lipi-net
+
+  # ─── ML Service: faster-whisper (STT) + mms-tts-npi (TTS) ─────────────────
+  ml:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    container_name: lipi-ml
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      STT_DEVICE: cuda
+      TTS_DEVICE: cuda
+      LOG_LEVEL: INFO
+    volumes:
+      - ml_models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - lipi-net
+
+  # ─── vLLM: Qwen (quantized or full) ──────────────────────────────────────
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: lipi-vllm
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    ipc: host
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - vllm_models:/root/.cache/huggingface
+    command: >
+      --model ${VLLM_MODEL_NAME:-Qwen/Qwen3-32B}
+      --tensor-parallel-size ${TENSOR_PARALLEL_SIZE:-2}
+      --dtype float16
+      --gpu-memory-utilization 0.85
+      --port 8080
+      --enable-prefix-caching
+      --max-model-len 8192
+      --served-model-name lipi
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0", "1"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/models"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    networks:
+      - lipi-net
+
+  # ─── PostgreSQL 16 with pgvector ──────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: lipi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lipi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: lipi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lipi -d lipi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lipi-net
+
+  # ─── Valkey (BSD-3 Redis fork) for cache + sessions ──────────────────────
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: lipi-valkey
+    restart: unless-stopped
+    command: valkey-server --appendonly yes --maxmemory 4gb --maxmemory-policy allkeys-lru
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lipi-net
+
+  # ─── MinIO: S3-compatible object storage ──────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: lipi-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    command: >
+      server /data
+      --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - lipi-net
+
+networks:
+  lipi-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  valkey_data:
+    driver: local
+  minio_data:
+    driver: local
+  vllm_models:
+    driver: local
+  ml_models:
+    driver: local

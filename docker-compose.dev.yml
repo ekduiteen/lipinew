@@ -1,0 +1,50 @@
+# ============================================================================
+# LIPI — Dev override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Changes from production compose:
+#   - backend port 8000 exposed directly (no Caddy needed)
+#   - postgres port 5432 exposed (direct psql access)
+#   - valkey port 6379 exposed (direct valkey-cli access)
+#   - minio ports 9000/9001 exposed (direct API + console)
+#   - vllm + ml + caddy profiles disabled (use remote server or Groq fallback)
+# ============================================================================
+
+services:
+
+  backend:
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  valkey:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # Disable GPU services locally — runs on remote server
+  vllm:
+    profiles: ["remote-only"]
+
+  ml:
+    profiles: ["remote-only"]
+
+  caddy:
+    profiles: ["remote-only"]

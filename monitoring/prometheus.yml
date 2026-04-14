@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: lipi
+
+scrape_configs:
+
+  # FastAPI backend
+  - job_name: backend
+    static_configs:
+      - targets: ['backend:8000']
+    metrics_path: /metrics
+
+  # ML service (faster-whisper + mms-tts-npi)
+  - job_name: ml_service
+    static_configs:
+      - targets: ['ml:5001']
+    metrics_path: /metrics
+
+  # vLLM OpenAI-compatible server
+  - job_name: vllm
+    static_configs:
+      - targets: ['vllm:8080']
+    metrics_path: /metrics
+
+  # PostgreSQL (requires postgres-exporter sidecar — add to compose if needed)
+  # - job_name: postgres
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

@@ -1,0 +1,127 @@
+.wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ─── Core orb ──────────────────────────────────────────────────────────── */
+
+.orb {
+  position: relative;
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  overflow: hidden;
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+
+.orb[data-state="idle"] {
+  animation: breathe 4s ease-in-out infinite;
+  box-shadow:
+    0 0 40px color-mix(in srgb, var(--orb-a) 30%, transparent),
+    0 0 80px color-mix(in srgb, var(--orb-b) 15%, transparent);
+}
+
+.orb[data-state="listening"] {
+  box-shadow:
+    0 0 60px color-mix(in srgb, var(--orb-a) 60%, transparent),
+    0 0 120px color-mix(in srgb, var(--orb-b) 30%, transparent);
+  animation: none;
+  transform: scale(1.05);
+}
+
+.orb[data-state="thinking"] {
+  animation: spin 2.4s linear infinite;
+  box-shadow:
+    0 0 50px color-mix(in srgb, var(--orb-b) 40%, transparent),
+    0 0 100px color-mix(in srgb, var(--orb-c) 20%, transparent);
+}
+
+.orb[data-state="speaking"] {
+  animation: pulse 0.6s ease-in-out infinite alternate;
+  box-shadow:
+    0 0 55px color-mix(in srgb, var(--orb-a) 50%, transparent),
+    0 0 110px color-mix(in srgb, var(--orb-c) 25%, transparent);
+}
+
+/* ─── Gradient fill ─────────────────────────────────────────────────────── */
+
+.gradient {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--orb-a),
+    var(--orb-b),
+    var(--orb-c),
+    var(--orb-a)
+  );
+  transition: filter 0.4s;
+}
+
+.gradient[data-state="thinking"] {
+  filter: saturate(1.4) brightness(1.1);
+}
+
+/* ─── Glass highlight ───────────────────────────────────────────────────── */
+
+.gloss {
+  position: absolute;
+  top: 8%;
+  left: 15%;
+  width: 40%;
+  height: 30%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.35) 0%,
+    transparent 80%
+  );
+  pointer-events: none;
+}
+
+/* ─── Listening rings ───────────────────────────────────────────────────── */
+
+.ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--orb-a);
+  opacity: 0;
+  animation: ripple 2s ease-out infinite;
+}
+
+.ring1 { animation-delay: 0s; }
+.ring2 { animation-delay: 0.6s; }
+.ring3 { animation-delay: 1.2s; }
+
+/* ─── Keyframes ─────────────────────────────────────────────────────────── */
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.06); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  from { transform: scale(1); }
+  to   { transform: scale(1.04); }
+}
+
+@keyframes ripple {
+  0%   { transform: scale(0.55); opacity: 0.6; }
+  100% { transform: scale(1.05); opacity: 0; }
+}

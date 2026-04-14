@@ -1,0 +1,194 @@
+/*!*************************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ./node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[2]!./node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[3]!./components/orb/Orb.module.css ***!
+  \*************************************************************************************************************************************************************************************************************************************************************************/
+.Orb_wrapper__Z4Lo2 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.Orb_canvas__MOsF2 {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ─── Core orb ──────────────────────────────────────────────────────────── */
+
+.Orb_orb__khBix {
+  position: relative;
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  overflow: hidden;
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+
+.Orb_orb__khBix[data-state="idle"] {
+  animation: Orb_breathe___LUlw 4s ease-in-out infinite;
+  box-shadow:
+    0 0 40px color-mix(in srgb, var(--orb-a) 30%, transparent),
+    0 0 80px color-mix(in srgb, var(--orb-b) 15%, transparent);
+}
+
+.Orb_orb__khBix[data-state="listening"] {
+  box-shadow:
+    0 0 60px color-mix(in srgb, var(--orb-a) 60%, transparent),
+    0 0 120px color-mix(in srgb, var(--orb-b) 30%, transparent);
+  animation: none;
+  transform: scale(1.05);
+}
+
+.Orb_orb__khBix[data-state="thinking"] {
+  animation: Orb_spin___K5Ej 2.4s linear infinite;
+  box-shadow:
+    0 0 50px color-mix(in srgb, var(--orb-b) 40%, transparent),
+    0 0 100px color-mix(in srgb, var(--orb-c) 20%, transparent);
+}
+
+.Orb_orb__khBix[data-state="speaking"] {
+  animation: Orb_pulse__KZ_Yv 0.6s ease-in-out infinite alternate;
+  box-shadow:
+    0 0 55px color-mix(in srgb, var(--orb-a) 50%, transparent),
+    0 0 110px color-mix(in srgb, var(--orb-c) 25%, transparent);
+}
+
+/* ─── Gradient fill ─────────────────────────────────────────────────────── */
+
+.Orb_gradient__gHzXY {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--orb-a),
+    var(--orb-b),
+    var(--orb-c),
+    var(--orb-a)
+  );
+  transition: filter 0.4s;
+}
+
+.Orb_gradient__gHzXY[data-state="thinking"] {
+  filter: saturate(1.4) brightness(1.1);
+}
+
+/* ─── Glass highlight ───────────────────────────────────────────────────── */
+
+.Orb_gloss__P60dM {
+  position: absolute;
+  top: 8%;
+  left: 15%;
+  width: 40%;
+  height: 30%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.35) 0%,
+    transparent 80%
+  );
+  pointer-events: none;
+}
+
+/* ─── Listening rings ───────────────────────────────────────────────────── */
+
+.Orb_ring__FG4zS {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--orb-a);
+  opacity: 0;
+  animation: Orb_ripple__9P2KB 2s ease-out infinite;
+}
+
+.Orb_ring1__yy_ku { animation-delay: 0s; }
+.Orb_ring2__Ihhqo { animation-delay: 0.6s; }
+.Orb_ring3__j4uaG { animation-delay: 1.2s; }
+
+/* ─── Keyframes ─────────────────────────────────────────────────────────── */
+
+@keyframes Orb_breathe___LUlw {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.06); }
+}
+
+@keyframes Orb_spin___K5Ej {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes Orb_pulse__KZ_Yv {
+  from { transform: scale(1); }
+  to   { transform: scale(1.04); }
+}
+
+@keyframes Orb_ripple__9P2KB {
+  0%   { transform: scale(0.55); opacity: 0.6; }
+  100% { transform: scale(1.05); opacity: 0; }
+}
+
+/*!*****************************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ./node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[2]!./node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[3]!./app/(tabs)/teach/teach.module.css ***!
+  \*****************************************************************************************************************************************************************************************************************************************************************************/
+.teach_root__6UeAw {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+
+.teach_orbWrap__xq9tZ {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.teach_connecting__U1cZG {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  animation: teach_blink__DYaUt 1.4s ease-in-out infinite;
+}
+
+@keyframes teach_blink__DYaUt {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ─── Correction card ───────────────────────────────────────────────────── */
+
+.teach_correctionCard__klsgV {
+  position: absolute;
+  bottom: 6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(90vw, 400px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  animation: teach_slideUp__Nx1gp 0.25s ease, teach_fadeOut__W_SC7 0.5s ease 2.5s forwards;
+}
+
+.teach_correctionText__EapAG {
+  font-size: 1.05rem;
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+@keyframes teach_slideUp__Nx1gp {
+  from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@keyframes teach_fadeOut__W_SC7 {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+

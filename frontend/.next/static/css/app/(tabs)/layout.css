@@ -1,0 +1,62 @@
+/*!**********************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ./node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[2]!./node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[3]!./app/(tabs)/tabs.module.css ***!
+  \**********************************************************************************************************************************************************************************************************************************************************************/
+.tabs_root__YYbb_ {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.tabs_main__E0m_3 {
+  flex: 1 1;
+  overflow-y: auto;
+  padding-bottom: 4.5rem; /* space for bottom nav */
+}
+
+/*!******************************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ./node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[2]!./node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[7].use[3]!./components/ui/BottomNav.module.css ***!
+  \******************************************************************************************************************************************************************************************************************************************************************************/
+.BottomNav_nav__9n1ty {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4.5rem;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 50;
+  safe-area-inset-bottom: env(safe-area-inset-bottom);
+}
+
+.BottomNav_tab__w_vc1 {
+  flex: 1 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  text-decoration: none;
+  color: var(--fg-muted);
+  transition: color 0.15s;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.BottomNav_tab__w_vc1.BottomNav_active__7D1Kd { color: var(--accent); }
+.BottomNav_tab__w_vc1:hover:not(.BottomNav_active__7D1Kd) { color: var(--fg); }
+
+.BottomNav_icon__5M2vz { font-size: 1.3rem; line-height: 1; }
+
+.BottomNav_labelNe__tSoda {
+  font-size: 0.75rem;
+  font-family: var(--font-nepali);
+  font-weight: 500;
+}
+
+.BottomNav_labelEn__E46WH {
+  font-size: 0.6rem;
+  font-family: var(--font-latin);
+  color: inherit;
+  opacity: 0.65;
+}
+

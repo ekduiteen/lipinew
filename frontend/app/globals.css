@@ -1,0 +1,81 @@
+/* ============================================================================
+   LIPI — global styles + theme variables
+   Themes are switched via [data-theme] on <html>. Never hardcode colors.
+   ============================================================================ */
+
+:root {
+  --font-nepali: "Noto Sans Devanagari", system-ui, sans-serif;
+  --font-latin: "Inter", system-ui, sans-serif;
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-full: 9999px;
+}
+
+/* ─── Dark (default) ─────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg: #0a0a0f;
+  --bg-elev: #14141c;
+  --fg: #f5f5fa;
+  --fg-muted: #9999a8;
+  --accent: #6366f1;
+  --orb-a: #6366f1;
+  --orb-b: #8b5cf6;
+  --orb-c: #ec4899;
+  --border: #26262e;
+}
+
+/* ─── Bright ─────────────────────────────────────────────────────────────── */
+[data-theme="bright"] {
+  --bg: #f8f8ff;
+  --bg-elev: #ffffff;
+  --fg: #0a0a0f;
+  --fg-muted: #6b6b7b;
+  --accent: #6366f1;
+  --orb-a: #818cf8;
+  --orb-b: #a78bfa;
+  --orb-c: #f472b6;
+  --border: #e5e5ed;
+}
+
+/* ─── Cyber Punk ─────────────────────────────────────────────────────────── */
+[data-theme="cyberpunk"] {
+  --bg: #000000;
+  --bg-elev: #0a0014;
+  --fg: #e0ffe9;
+  --fg-muted: #6affad;
+  --accent: #00ff9f;
+  --orb-a: #00ff9f;
+  --orb-b: #ff00ea;
+  --orb-c: #00e5ff;
+  --border: #1a0033;
+}
+
+/* ─── Traditional ────────────────────────────────────────────────────────── */
+[data-theme="traditional"] {
+  --bg: #1a0f00;
+  --bg-elev: #2a1a05;
+  --fg: #fff5e0;
+  --fg-muted: #c9a86a;
+  --accent: #f59e0b;
+  --orb-a: #f59e0b;
+  --orb-b: #dc2626;
+  --orb-c: #fbbf24;
+  --border: #4a2f10;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-nepali);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+button { font: inherit; cursor: pointer; }
+
+.text-nepali { font-family: var(--font-nepali); }
+.text-latin  { font-family: var(--font-latin); font-size: 0.85em; color: var(--fg-muted); }
