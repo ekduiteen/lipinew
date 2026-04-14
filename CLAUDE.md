@@ -32,22 +32,22 @@ Storage:   4TB NVMe
 Network:   1 Gbps uplink
 ```
 
-**GPU allocation (2× L40S start):**
+**GPU allocation (current tested: single L40S):**
 ```
-GPU 0:  vLLM serving Qwen3-32B (tensor-parallel-size 2 → 32GB/card at float16)
+GPU 0:  vLLM serving Qwen2.5-14B-Instruct-AWQ (AWQ quantized, fits single L40S)
         + faster-whisper large-v3 STT (~3GB, shares GPU 0)
-GPU 1:  vLLM tensor parallel (second half of Qwen3-32B)
-        + facebook/mms-tts-npi TTS (~2GB, shares GPU 1)
+        + OmniVoice TTS (~2GB, shares GPU 0)
 ```
+
+> **Future:** Cluster configuration with 2× L40S supports tensor-parallel larger models. Current production uses AWQ quantization for single-GPU efficiency.
 
 **vLLM launch command:**
 ```bash
 python -m vllm.entrypoints.openai.api_server \
-  --model Qwen/Qwen3-32B \
-  --tensor-parallel-size 2 \
-  --dtype float16 \
+  --model Qwen/Qwen2.5-14B-Instruct-AWQ \
+  --dtype auto \
   --gpu-memory-utilization 0.85 \
-  --port 8080 \
+  --port 8100 \
   --enable-prefix-caching \
   --max-model-len 8192 \
   --served-model-name lipi
@@ -63,10 +63,10 @@ python -m vllm.entrypoints.openai.api_server \
 | Mobile (Phase 2) | Flutter | iOS + Android from one codebase |
 | Backend | FastAPI (Python 3.11) | Async, fast, GPU-friendly ecosystem |
 | LLM inference | vLLM (OpenAI-compatible API) | Best throughput for self-hosted |
-| LLM model | Qwen3-32B (benchmark → may swap) | 201 languages, fits 2× L40S at float16 |
+| LLM model | Qwen2.5-14B-Instruct-AWQ | 201 languages, fits single L40S with AWQ quantization |
 | STT | faster-whisper large-v3 | 99 languages, dialect LoRA support |
-| TTS | facebook/mms-tts-npi (Phase 1) | Immediate Nepali, no training needed |
-| TTS (Phase 2) | StyleTTS2 or Piper | Fully open license |
+| TTS | OmniVoice | Multilingual, Nepali voices, open source |
+| TTS (legacy) | facebook/mms-tts-npi | Phase 1 fallback if needed |
 | Database | PostgreSQL 16 + pgvector | Structured data + speaker embeddings |
 | Cache / Queues | **Valkey** (NOT Redis — Redis is SSPL) | BSD-3 licensed Redis fork |
 | Object storage | MinIO | S3-compatible, self-hosted, AGPL |
@@ -136,7 +136,7 @@ lipi/
 ├── ml/                          # STT + TTS microservice (GPU 0-1)
 │   ├── main.py
 │   ├── stt.py                   # faster-whisper endpoints
-│   └── tts.py                   # mms-tts-npi endpoints
+│   └── tts.py                   # OmniVoice TTS endpoints
 │
 └── pipeline/                    # Monthly training (off-peak)
     ├── prepare_data.py
@@ -354,7 +354,7 @@ All design decisions are final. Read these docs before touching the related code
 | `GAMIFICATION_DATA_MODEL.md` | Points, badges, leaderboards, tone profiles |
 | `DATABASE_SCHEMA.md` | Core language learning tables |
 | `STT_ARCHITECTURE.md` | faster-whisper setup, dialect LoRA |
-| `TTS_ARCHITECTURE.md` | mms-tts-npi setup, Phase 2 VITS |
+| `TTS_ARCHITECTURE.md` | OmniVoice setup, Phase 2 training |
 | `STUDENT_CHARACTER_DESIGN.md` | LIPI's personality, moderation, questions |
 | `DEPLOYMENT.md` | Docker Compose, Caddy, Coolify |
 
@@ -368,7 +368,7 @@ All design decisions are final. Read these docs before touching the related code
 2. Caddyfile (reverse proxy + auto HTTPS)
 3. init-db.sql (PostgreSQL schema + pgvector)
 4. ML service skeleton (STT + TTS FastAPI)
-5. vLLM server running Qwen3-32B
+5. vLLM server running Qwen2.5-14B-Instruct-AWQ
 6. Health checks on all services
 ```
 
@@ -378,7 +378,7 @@ All design decisions are final. Read these docs before touching the related code
 8.  prompt_builder.py (dynamic system prompt assembly)
 9.  STT pipeline (audio → faster-whisper → text)
 10. LLM pipeline (text → vLLM → text) + fallback
-11. TTS pipeline (text → mms-tts → audio) + fallback
+11. TTS pipeline (text → OmniVoice → audio) + fallback
 12. Session creation + tear-down
 13. Points transaction logging
 ```

@@ -2,11 +2,7 @@
 
 ## ✅ What's Been Fixed
 
-1. **Backend Updated** — Now has correct Google credentials:
-   ```
-   GOOGLE_CLIENT_ID=639539366972-9lo9pmuq5g62fa49v7nkclnm6n15o2tj.apps.googleusercontent.com
-   GOOGLE_CLIENT_SECRET=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
-   ```
+1. **Backend Updated** — Now has correct Google credentials configured in .env (not shown in repo)
 
 2. **Backend Restarted** — Container restarted with new configuration
 

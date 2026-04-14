@@ -15,6 +15,11 @@ class Settings(BaseSettings):
 
     # Valkey (NOT Redis)
     valkey_url: str = "valkey://valkey:6379/0"
+    learning_queue_key: str = "queue:learning:pending"
+    learning_processing_key: str = "queue:learning:processing"
+    learning_dead_letter_key: str = "queue:learning:dead"
+    learning_max_attempts: int = 3
+    learning_worker_poll_seconds: int = 5
 
     # vLLM
     vllm_url: str = "http://vllm:8080"

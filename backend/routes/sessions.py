@@ -9,7 +9,7 @@ Flow per turn:
   5. TTS → WAV bytes
   6. Send WAV bytes + metadata back to client
   7. Persist teacher + LIPI turns to DB       (STORE)
-  8. Fire learning cycle as background task   (PROCESS → EXTRACT → STORE)
+  8. Queue learning cycle job                 (PROCESS → EXTRACT → STORE)
 
 The client sends binary frames (raw audio) and receives binary frames (WAV)
 interleaved with JSON text frames for metadata (corrections, points, state).
@@ -17,7 +17,6 @@ interleaved with JSON text frames for metadata (corrections, points, state).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -252,16 +251,13 @@ async def conversation_ws(
             # ── 7. Valkey history (rolling LLM context) ───────────────────
             await _save_message_history(session_id, message_history)
 
-            # ── 8. Learning cycle — fire-and-forget background task ───────
-            asyncio.create_task(
-                learning_svc.process_turn_background(
-                    session_id=session_id,
-                    user_id=user_id,
-                    teacher_text=teacher_text,
-                    lipi_response=lipi_text,
-                    stt_result=stt_result,
-                    http=http,
-                )
+            # ── 8. Learning cycle — durable queue, never blocks WS ─────────
+            await learning_svc.enqueue_turn(
+                session_id=session_id,
+                user_id=user_id,
+                teacher_text=teacher_text,
+                lipi_response=lipi_text,
+                stt_result=stt_result,
             )
 
             # ── 9. TTS → send audio ───────────────────────────────────────

@@ -15,6 +15,7 @@ from config import settings
 from db.connection import engine, SessionLocal
 from models.points import TeacherPointsSummary
 from routes import auth, sessions, leaderboard, teachers
+from services import learning as learning_svc
 
 logging.basicConfig(
     level=settings.log_level,
@@ -53,13 +54,17 @@ async def lifespan(app: FastAPI):
     logger.info("Database schema initialized")
 
     app.state.http = httpx.AsyncClient(timeout=settings.ml_timeout)
-    task = asyncio.create_task(_summary_rebuild_loop())
-    yield
-    logger.info("LIPI backend shutting down")
-    task.cancel()
-    await app.state.http.aclose()
-    await valkey.aclose()
-    await engine.dispose()
+    summary_task = asyncio.create_task(_summary_rebuild_loop())
+    learning_task = asyncio.create_task(learning_svc.run_worker(app.state.http))
+    try:
+        yield
+    finally:
+        logger.info("LIPI backend shutting down")
+        summary_task.cancel()
+        learning_task.cancel()
+        await app.state.http.aclose()
+        await valkey.aclose()
+        await engine.dispose()
 
 
 app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)

@@ -1,7 +1,7 @@
 # LIPI — Developer Onboarding Guide
 
 > **Living document. Update rule: every PR that adds a service, endpoint, pattern, or architectural decision MUST include a corresponding update to this file. No exceptions. If you shipped it and didn't document it here, it didn't happen.**
-> Last synced: 2026-04-14 — Fixed session creation (tone profile field alignment), onboarding education_level mapping, frontend proxy route for /api/sessions. End-to-end flow verified working.
+> Last synced: 2026-04-15 — Added durable Valkey learning queue, switched TTS docs to OmniVoice, documented single-L40S remote layout, and clarified the current frontend testing caveat around `localhost:8000`.
 
 ---
 
@@ -36,7 +36,7 @@ lipi/
 ├── ml/                         ← GPU microservice (STT + TTS)
 │   ├── main.py                 ← FastAPI app, /health /stt /tts /models/info
 │   ├── stt.py                  ← STTService (faster-whisper large-v3)
-│   ├── tts.py                  ← TTSService (facebook/mms-tts-npi)
+│   ├── tts.py                  ← TTSService (OmniVoice)
 │   ├── requirements.txt
 │   └── Dockerfile
 │
@@ -105,13 +105,20 @@ lipi/
 Server:  Own bare-metal, Ubuntu 22.04, CUDA 12.1
 RAM:     256 GB
 Storage: 4 TB NVMe
-GPUs:    2× NVIDIA L40S (48 GB VRAM each)
+GPUs:    1× NVIDIA L40S (48 GB VRAM)
 
-GPU 0:  vLLM (Qwen3-32B, tensor-parallel half) + faster-whisper STT (~3 GB)
-GPU 1:  vLLM (Qwen3-32B, tensor-parallel half) + mms-tts-npi TTS (~2 GB)
+GPU 0:  Host-level vLLM (Qwen2.5-14B-Instruct-AWQ on :8100)
+        + remote ML container (faster-whisper large-v3 on :5001)
+        + no dedicated GPU left for compose-managed vLLM duplication
 ```
 
-> **Note:** PHASE_ROADMAP.md references a 10× L40S cluster — that is a future expansion target. **Starting hardware is 2× L40S.** All configs in this repo are for 2× L40S.
+> **Current live deployment note (2026-04-14):** the remote server currently has a single L40S, not two. The stable production-like layout is:
+> - host-level `vLLM` on `127.0.0.1:8100`
+> - Docker `backend`, `ml`, `postgres`, `valkey`, `minio`
+> - Docker backend reaches host `vLLM` via `http://host.docker.internal:8100`
+> - compose-managed `vllm` should stay disabled on this host to avoid GPU memory contention
+>
+> `PHASE_ROADMAP.md` still references future multi-GPU expansion. Do not assume the current remote box has 2 GPUs.
 
 ---
 
@@ -124,7 +131,7 @@ GPU 1:  vLLM (Qwen3-32B, tensor-parallel half) + mms-tts-npi TTS (~2 GB)
 | LLM inference | vLLM (OpenAI-compat) | Groq fires only on local failure |
 | LLM model | Qwen3-32B | fits 2× L40S at float16 |
 | STT | faster-whisper large-v3 | VAD built-in, no hold-to-talk |
-| TTS | facebook/mms-tts-npi | Phase 1; StyleTTS2/Piper in Phase 2 |
+| TTS | OmniVoice | Zero-shot multilingual TTS with optional voice cloning |
 | Database | PostgreSQL 16 + pgvector | speaker embeddings as vector(512) |
 | Cache | **Valkey** (BSD-3) | **NEVER** `from redis import …` |
 | Object storage | MinIO | S3-compat, self-hosted |
@@ -180,6 +187,12 @@ curl http://localhost:8080/v1/models
 # → {"data":[{"id":"lipi",...}]}
 ```
 
+> **Current caveat (2026-04-15):** in the hybrid local-dev setup, `frontend/.env.local` points the browser app at `http://localhost:8000`, but the local Docker backend is not published to the host by default. If you run `npm run dev` locally without either:
+> - publishing the backend on host `:8000`, or
+> - recreating the SSH tunnel to the remote backend on local `:8000`
+>
+> the frontend will appear to hang or spin because its API target is unreachable or not the expected FastAPI service.
+
 ### 5.4 CPU-only mode (no GPUs)
 
 Comment out `vllm` and `ml` services in `docker-compose.yml`. Set `GROQ_API_KEY` in `.env`. All STT/LLM/TTS calls will route to Groq. Useful for frontend development.
@@ -201,6 +214,27 @@ STT_DEVICE=cuda:0 TTS_DEVICE=cuda:1 uvicorn main:app --port 5001
 ```
 
 Infra services (`postgres`, `valkey`, `minio`) must still be running in Docker.
+
+### 5.6 Frontend testing on a laptop (current safest path)
+
+```bash
+# 1. Start a tunnel so the local frontend can reach the remote backend stack
+ssh -N -p 41447 \
+  -L 8000:localhost:8000 \
+  -L 5001:localhost:5001 \
+  -L 8100:localhost:8100 \
+  -L 9000:localhost:9000 \
+  ekduiteen@202.51.2.50
+
+# 2. In a separate terminal, start the Next dev server
+cd frontend && npm install && npm run dev
+
+# 3. Verify the two ports independently
+curl -I http://127.0.0.1:3000
+curl http://127.0.0.1:8000/health
+```
+
+If `:3000` responds but the app still does not load data, check `:8000` first. A healthy HTML page on `:3000` with a broken or missing backend on `:8000` looks like a "frontend stuck loading" issue but is really an API routing problem.
 
 ---
 
@@ -234,12 +268,14 @@ Infra services (`postgres`, `valkey`, `minio`) must still be running in Docker.
   │     └─ message_store.persist_lipi_turn()
   │     └─ Detect correction → log points_transaction
   │
-  ├─ 5. asyncio.create_task(learning_svc.process_turn_background())
+  ├─ 5. learning_svc.enqueue_turn()
+  │     ├─ PUSH: save extraction job to Valkey pending queue
+  │     ├─ WORKER: backend lifespan task moves job → processing queue
   │     ├─ PROCESS: LLM extracts vocabulary JSON from teacher utterance
   │     ├─ EXTRACT: parse {word, language, definition_en}
   │     └─ STORE: upsert vocabulary_entries + vocabulary_teachers
   │               log word_learned (5pts) + pioneer_word (25pts) if first ever
-  │        ← runs concurrently, never blocks the WS response
+  │        ← durable + retryable, never blocks the WS response
   │
   ├─ 6. tts_svc.synthesize(lipi_text)
   │     └─ POST ml:5001/tts  → WAV bytes
@@ -403,7 +439,11 @@ confidence >= 0.6 AND len(text) >= 3?
      │ yes
      ▼
      │  PROCESS
-LLM extraction call (background, ~200ms, doesn't block WS):
+Learning job enqueued in Valkey (doesn't block WS):
+     pending queue → processing queue → dead-letter on repeated failure
+     │
+     ▼  PROCESS
+LLM extraction call (~200ms worker-side):
      prompt: "Extract vocabulary from: '{teacher_text}'"
      response: {"words": [{"word": "...", "language": "ne", "definition_en": "..."}]}
      │
@@ -421,11 +461,12 @@ For each word:
 ```
 
 **Key design decisions:**
-- Extraction runs as `asyncio.create_task()` — never adds latency to the WS turn
+- Extraction is queued in Valkey and consumed by a backend worker — never adds latency to the WS turn
 - Low-confidence audio (< 0.6) is skipped — bad audio = bad data
 - Max 5 words extracted per turn — prevents LLM hallucination floods
 - `vocabulary_entries` has `UNIQUE(word, language)` — safe to upsert concurrently
 - Pioneer status is set at insert time and never changes
+- Failed jobs retry up to the configured max, then move to a dead-letter queue for inspection
 
 ---
 
@@ -510,7 +551,17 @@ Every user-facing string has Nepali (primary, larger, top) and English (secondar
 | `/models/info` | GET | Model names and devices |
 
 **STT**: faster-whisper large-v3 with VAD filter. Auto-detects language (Nepali or English, per utterance).
-**TTS**: facebook/mms-tts-npi. Returns float32 mono WAV at 16kHz.
+**TTS**: OmniVoice. Returns float32 mono WAV at 24kHz.
+
+**Current remote behavior (1-GPU host):**
+- `stt_loaded=true` and usable
+- `tts_loaded=false` on the remote server at the moment
+- backend TTS path still works because `backend/services/tts.py` falls back to silence when `/tts` is unavailable
+
+**OmniVoice integration notes:**
+- `OMNIVOICE_MODE=auto` gives a model-chosen voice without a reference clip
+- `OMNIVOICE_MODE=clone` requires both `OMNIVOICE_REF_AUDIO` and `OMNIVOICE_REF_TEXT`
+- first rollout should validate plain synthesis first, then switch to clone mode once we have a canonical LIPI reference voice
 
 ### Backend (`backend:8000`)
 
@@ -525,9 +576,35 @@ Every user-facing string has Nepali (primary, larger, top) and English (secondar
 | `/api/teachers/me/badges` | GET | Earned badges |
 | `/api/leaderboard` | GET | `?period=weekly\|monthly\|all_time` (Valkey cached) |
 
-### vLLM (`vllm:8080`)
+### vLLM
 
-OpenAI-compatible. The backend's `llm.py` calls `/v1/chat/completions` with `stream: true`. The model name is `lipi` (set by `--served-model-name lipi`).
+OpenAI-compatible. The backend's `llm.py` calls `/v1/chat/completions` with `stream: true`.
+
+**Current remote runtime:**
+- host-level `vLLM` listens on `127.0.0.1:8100`
+- model currently serving: `Qwen/Qwen2.5-14B-Instruct-AWQ`
+- Docker backend uses `VLLM_URL=http://host.docker.internal:8100`
+- compose-managed `vllm:8080` is intentionally not used on the single-L40S host
+
+### Port Map (Current Remote + Tunnel Layout)
+
+| Port | Location | Purpose |
+|------|----------|---------|
+| `41447` | remote host | SSH |
+| `8000` | remote Docker + local tunnel | FastAPI backend for hybrid local frontend testing |
+| `5001` | remote Docker + local tunnel | ML service |
+| `8100` | remote host + local tunnel | host-level vLLM |
+| `9000` | remote Docker + local tunnel | MinIO API |
+| `9001` | remote Docker | MinIO console |
+| `5432` | remote Docker internal only | PostgreSQL |
+| `6379` | remote Docker internal only | Valkey |
+
+**Local forwarded ports currently in use:**
+- `127.0.0.1:8000` → remote backend, but only if the SSH tunnel is active
+- `127.0.0.1:5001` → remote ML
+- `127.0.0.1:8100` → remote host-level vLLM
+- `127.0.0.1:9000` → remote MinIO
+- `127.0.0.1:3000` should be kept free for local `next dev`; do not include it in the SSH tunnel unless you intentionally want a remote frontend
 
 ---
 
@@ -597,7 +674,7 @@ Badges are checked after every session close via `_close_session()` in `routes/s
 
 2. **Speaker embedding extraction** — extract `vector(512)` embedding from each audio utterance using multilingual-e5-large and write to `speaker_embeddings`. Required for dialect clustering (roadmap Weeks 7–8). Currently: `speaker_embeddings` table exists but extraction pipeline not implemented.
 
-3. **Async learning queue** — vocabulary extraction runs as `asyncio.create_task()` (fire-and-forget). No retry logic or failure tracking yet. If extraction fails silently, no word is learned. Consider adding a durable queue (e.g., Valkey list) with a background worker.
+3. **Async learning queue** — ✅ Implemented with Valkey-backed pending/processing/dead-letter queues and retry logic in the backend lifespan worker. Remaining gap: add monitoring/alerting for dead-letter growth.
 
 **Quality (before shipping):**
 

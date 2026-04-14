@@ -1,36 +1,35 @@
 """
 Learning cycle — OBSERVE → PROCESS → EXTRACT → STORE
 
-Runs as a background asyncio task after each teacher turn so it never
-adds latency to the WebSocket conversation loop.
-
-OBSERVE:  capture STT confidence, audio quality signal
-PROCESS:  ask the LLM to identify new vocabulary words from the utterance
-EXTRACT:  parse the structured response
-STORE:    upsert vocabulary_entries + vocabulary_teachers, log word_learned points
-
-Uses the same vLLM connection as the conversation — lightweight extraction
-prompt (~100 tokens in, ~200 tokens out), routed through llm.generate().
+Each teacher turn is queued into Valkey so extraction survives process restarts
+and transient failures can be retried without blocking the WebSocket loop.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cache import valkey
+from config import settings
 from db.connection import SessionLocal
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger("lipi.backend.learning")
+
+_QUEUE_KEY = settings.learning_queue_key
+_PROCESSING_KEY = settings.learning_processing_key
+_DEAD_LETTER_KEY = settings.learning_dead_letter_key
+
 
 # ─── Extraction prompt ───────────────────────────────────────────────────────
 
@@ -54,33 +53,103 @@ LIPI's response (context): "{response}"
 """
 
 
-# ─── Main entry point ────────────────────────────────────────────────────────
+# ─── Queue lifecycle ─────────────────────────────────────────────────────────
 
-async def process_turn_background(
+async def enqueue_turn(
     *,
     session_id: str,
     user_id: str,
     teacher_text: str,
     lipi_response: str,
     stt_result: dict,
-    http: httpx.AsyncClient,
 ) -> None:
-    """
-    Fire-and-forget background task.
-    Call with: asyncio.create_task(process_turn_background(...))
-    """
-    try:
-        await _run(
-            session_id=session_id,
-            user_id=user_id,
-            teacher_text=teacher_text,
-            lipi_response=lipi_response,
-            stt_result=stt_result,
-            http=http,
-        )
-    except Exception as exc:
-        logger.warning("Learning cycle error (session=%s): %s", session_id, exc)
+    """Persist a learning job to Valkey so extraction is durable and retryable."""
+    job = {
+        "job_id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "user_id": user_id,
+        "teacher_text": teacher_text,
+        "lipi_response": lipi_response,
+        "stt_result": stt_result,
+        "attempt": 0,
+        "enqueued_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await valkey.lpush(_QUEUE_KEY, json.dumps(job))
 
+
+async def requeue_inflight_jobs() -> int:
+    """Move unacked jobs back to the pending queue on startup."""
+    moved = 0
+    while True:
+        raw = await valkey.rpoplpush(_PROCESSING_KEY, _QUEUE_KEY)
+        if raw is None:
+            break
+        moved += 1
+    if moved:
+        logger.warning("Requeued %d in-flight learning job(s) after restart", moved)
+    return moved
+
+
+async def run_worker(http: httpx.AsyncClient) -> None:
+    """Consume queued learning jobs forever."""
+    await requeue_inflight_jobs()
+    logger.info("Learning worker online")
+
+    while True:
+        raw = await valkey.brpoplpush(
+            _QUEUE_KEY,
+            _PROCESSING_KEY,
+            timeout=settings.learning_worker_poll_seconds,
+        )
+        if raw is None:
+            continue
+
+        try:
+            job = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Dropping malformed learning job: %r", raw[:200])
+            await valkey.lrem(_PROCESSING_KEY, 1, raw)
+            continue
+
+        try:
+            await _run(
+                session_id=str(job["session_id"]),
+                user_id=str(job["user_id"]),
+                teacher_text=str(job["teacher_text"]),
+                lipi_response=str(job["lipi_response"]),
+                stt_result=dict(job.get("stt_result", {})),
+                http=http,
+            )
+            await valkey.lrem(_PROCESSING_KEY, 1, raw)
+        except Exception as exc:
+            attempt = int(job.get("attempt", 0)) + 1
+            job["attempt"] = attempt
+            job["last_error"] = str(exc)
+            job["failed_at"] = datetime.now(timezone.utc).isoformat()
+            await valkey.lrem(_PROCESSING_KEY, 1, raw)
+
+            if attempt >= settings.learning_max_attempts:
+                await valkey.lpush(_DEAD_LETTER_KEY, json.dumps(job))
+                logger.warning(
+                    "Learning job moved to dead letter queue after %d attempt(s): session=%s job=%s error=%s",
+                    attempt,
+                    job.get("session_id"),
+                    job.get("job_id"),
+                    exc,
+                )
+            else:
+                await valkey.lpush(_QUEUE_KEY, json.dumps(job))
+                logger.warning(
+                    "Learning job retry %d/%d queued: session=%s job=%s error=%s",
+                    attempt,
+                    settings.learning_max_attempts,
+                    job.get("session_id"),
+                    job.get("job_id"),
+                    exc,
+                )
+
+
+# ─── Main worker step ────────────────────────────────────────────────────────
 
 async def _run(
     *,
@@ -105,13 +174,14 @@ async def _run(
     if len(teacher_text.strip()) < 3:
         return
 
-    # ── PROCESS — ask LLM to extract vocabulary ───────────────────────────────
+    # ── PROCESS — ask LLM to extract vocabulary ──────────────────────────────
     messages = [
         {"role": "system", "content": _EXTRACTION_SYSTEM},
         {
             "role": "user",
             "content": _EXTRACTION_USER.format(
-                text=teacher_text, response=lipi_response
+                text=teacher_text,
+                response=lipi_response,
             ),
         },
     ]
@@ -119,10 +189,15 @@ async def _run(
     if not isinstance(raw, str):
         return
 
-    # ── EXTRACT — parse JSON ──────────────────────────────────────────────────
+    # ── EXTRACT — parse JSON ─────────────────────────────────────────────────
     try:
-        # Strip any accidental markdown fencing
-        cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        cleaned = (
+            raw.strip()
+            .removeprefix("```json")
+            .removeprefix("```")
+            .removesuffix("```")
+            .strip()
+        )
         payload = json.loads(cleaned)
         words: list[dict] = payload.get("words", [])
     except (json.JSONDecodeError, AttributeError) as exc:
@@ -132,12 +207,12 @@ async def _run(
     if not words:
         return
 
-    # ── STORE ─────────────────────────────────────────────────────────────────
+    # ── STORE ────────────────────────────────────────────────────────────────
     async with SessionLocal() as db:
         streak = await points_svc.get_current_streak(db, user_id)
         new_word_count = 0
 
-        for entry in words[:5]:  # hard cap
+        for entry in words[:5]:
             word = str(entry.get("word", "")).strip().lower()
             language = str(entry.get("language", "ne")).strip()[:10]
             definition_en = str(entry.get("definition_en", "")).strip()[:500]
@@ -155,7 +230,6 @@ async def _run(
                 stt_confidence=stt_confidence,
             )
 
-        # Log points for new words
         for _ in range(new_word_count):
             await points_svc.log_transaction(
                 db,
@@ -169,7 +243,9 @@ async def _run(
             await db.commit()
             logger.info(
                 "Learned %d new word(s) — session=%s user=%s",
-                new_word_count, session_id, user_id,
+                new_word_count,
+                session_id,
+                user_id,
             )
 
 
@@ -187,21 +263,11 @@ async def _upsert_vocabulary(
     Insert or update a vocabulary entry.
     Returns 1 if truly new (first time LIPI has seen this word), 0 if reinforcement.
     """
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-    # Check if word already exists
-    result = await db.execute(
-        select(
-            # We import the raw table here to avoid circular ORM issues
-            # vocabulary_entries is defined in init-db.sql, not as an ORM model yet
-        ).where(False)  # placeholder — replaced below
-    )
-
-    # Use raw SQL via text() to avoid needing a full ORM model for vocabulary_entries
-    from sqlalchemy import text
-
     existing = await db.execute(
-        text("SELECT id, times_taught, pioneer_teacher_id FROM vocabulary_entries WHERE word = :w AND language = :l"),
+        text(
+            "SELECT id, times_taught, pioneer_teacher_id "
+            "FROM vocabulary_entries WHERE word = :w AND language = :l"
+        ),
         {"w": word, "l": language},
     )
     row = existing.fetchone()
@@ -209,15 +275,16 @@ async def _upsert_vocabulary(
     is_pioneer = False
 
     if row is None:
-        # Brand new word — insert, mark pioneer
         vocab_id = str(uuid.uuid4())
         await db.execute(
-            text("""
+            text(
+                """
                 INSERT INTO vocabulary_entries
                     (id, word, language, definition, confidence, times_taught, pioneer_teacher_id)
                 VALUES
                     (:id, :word, :lang, :defn, :conf, 1, :pioneer)
-            """),
+                """
+            ),
             {
                 "id": vocab_id,
                 "word": word,
@@ -230,27 +297,29 @@ async def _upsert_vocabulary(
         is_pioneer = True
     else:
         vocab_id = str(row[0])
-        # Reinforce existing word — bump count and nudge confidence up
         await db.execute(
-            text("""
+            text(
+                """
                 UPDATE vocabulary_entries
                 SET times_taught = times_taught + 1,
                     confidence   = LEAST(confidence + 0.05, 1.0),
                     updated_at   = NOW()
                 WHERE id = :id
-            """),
+                """
+            ),
             {"id": vocab_id},
         )
 
-    # Record teacher contribution
     await db.execute(
-        text("""
+        text(
+            """
             INSERT INTO vocabulary_teachers
                 (id, vocabulary_id, teacher_id, session_id, contribution_type, confidence_added)
             VALUES
                 (:id, :vid, :tid, :sid, :ctype, :conf)
             ON CONFLICT DO NOTHING
-        """),
+            """
+        ),
         {
             "id": str(uuid.uuid4()),
             "vid": vocab_id,
@@ -261,9 +330,9 @@ async def _upsert_vocabulary(
         },
     )
 
-    # Pioneer bonus points (separate from word_learned — handled by caller)
     if is_pioneer:
         from services import points as points_svc
+
         streak = await points_svc.get_current_streak(db, user_id)
         await points_svc.log_transaction(
             db,
