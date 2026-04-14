@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node
+node_modules/
+.next/
+.nextfolder/
+out/
+*.tsbuildinfo
+.env.local
+.env.*.local
+**/.next/**
+frontend/.next/**
+
+# Build outputs
+omni_tts_test.wav
+*.wav
+*.mp3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backend cache
+.cache/
+*.cache
+.pytest_cache/
+
+# Database
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Sensitive files
+.env
+.env.local
+secrets.json
+private_key.pem
+
+# Build artifacts
+dist/
+build/
+*.whl
