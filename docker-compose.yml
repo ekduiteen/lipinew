@@ -1,6 +1,6 @@
 # ============================================================================
 # LIPI — Full stack
-# 2× NVIDIA L40S | Qwen3-32B | faster-whisper | mms-tts-npi
+# Single L40S | Qwen2.5-14B-Instruct-AWQ | faster-whisper | OmniVoice
 # ============================================================================
 
 services:
@@ -122,7 +122,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # ─── vLLM: Qwen3-32B with tensor parallel across 2 GPUs ───────────────────
+  # ─── vLLM: Qwen2.5-14B-Instruct-AWQ (fits single L40S with AWQ quantization) ─────
   vllm:
     image: vllm/vllm-openai:latest
     container_name: lipi-vllm
@@ -133,9 +133,8 @@ services:
     volumes:
       - vllm_models:/root/.cache/huggingface
     command: >
-      --model Qwen/Qwen3-32B
-      --tensor-parallel-size 2
-      --dtype float16
+      --model Qwen/Qwen2.5-14B-Instruct-AWQ
+      --dtype auto
       --gpu-memory-utilization 0.85
       --port 8080
       --enable-prefix-caching
@@ -148,7 +147,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["0", "1"]
+              device_ids: ["0"]
               capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/v1/models"]
