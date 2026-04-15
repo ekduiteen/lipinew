@@ -39,33 +39,49 @@ function resolveWsBase(): string {
 const WS_BASE = resolveWsBase();
 
 export class LipiWebSocket {
-  private ws: WebSocket;
+  private ws: WebSocket | null = null;
   private _expectingAudio = false;
 
   constructor(sessionId: string, userId: string, private handlers: WSHandlers) {
-    const token =
-      typeof window !== "undefined" ? localStorage.getItem("lipi.token") : "";
-    const url = `${WS_BASE}/ws/session/${sessionId}?user_id=${userId}&token=${token ?? ""}`;
-    this.ws = new WebSocket(url);
-    this.ws.binaryType = "arraybuffer";
-    this.ws.onopen = () => this.handlers.onOpen?.();
-    this.ws.onmessage = this._onMessage.bind(this);
-    this.ws.onerror = handlers.onError;
-    this.ws.onclose = handlers.onClose;
+    // Fetch short-lived WebSocket token, then create the real connection.
+    this._initializeConnection(sessionId, userId);
+  }
+
+  private async _initializeConnection(sessionId: string, userId: string): Promise<void> {
+    try {
+      // Get short-lived WebSocket token from backend via frontend endpoint
+      // This endpoint reads the httpOnly cookie and gets a 5-min token
+      const tokenRes = await fetch("/api/auth/ws-token", { method: "POST" });
+      if (!tokenRes.ok) {
+        throw new Error(`Failed to get WebSocket token: ${tokenRes.status}`);
+      }
+      const { ws_token } = (await tokenRes.json()) as { ws_token: string };
+
+      const url = `${WS_BASE}/ws/session/${sessionId}?token=${encodeURIComponent(ws_token)}`;
+      this.ws = new WebSocket(url);
+      this.ws.binaryType = "arraybuffer";
+      this.ws.onopen = () => this.handlers.onOpen?.();
+      this.ws.onmessage = this._onMessage.bind(this);
+      this.ws.onerror = this.handlers.onError;
+      this.ws.onclose = this.handlers.onClose;
+    } catch (err: any) {
+      this.handlers.onError(new Event("error"));
+      console.error("Failed to initialize WebSocket:", err);
+    }
   }
 
   get readyState() {
-    return this.ws.readyState;
+    return this.ws?.readyState ?? WebSocket.CONNECTING;
   }
 
   sendAudio(bytes: ArrayBuffer | Uint8Array): void {
-    if (this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(bytes);
     }
   }
 
   close(): void {
-    this.ws.close();
+    this.ws?.close();
   }
 
   private _onMessage(ev: MessageEvent): void {

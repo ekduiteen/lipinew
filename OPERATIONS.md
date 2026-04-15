@@ -1,364 +1,197 @@
-# LIPI — Operations Reference
+# LIPI Operations
 
-Daily admin commands for running LIPI in production.
+Operational reference for the **actual current LIPI runtime**, not the old multi-GPU / Kubernetes plan.
 
----
+## Current Reality
 
-## Quick Status
+### Local
+- `frontend` on `http://127.0.0.1:3000`
+- `backend` on `http://127.0.0.1:8000`
+- `postgres`, `valkey`, `minio` in Docker
 
+### Remote
+- one NVIDIA L40S
+- host-level Gemma OpenAI-compatible server on `127.0.0.1:8100`
+- Docker `backend`, `ml`, `postgres`, `valkey`, `minio`
+- live remote compose path: `/data/lipi/docker-compose.lipi.yml`
+
+### Model stack
+- **LLM**: Gemma 4
+- **STT**: faster-whisper large-v3
+- **TTS**: Piper
+
+## Canonical Health Checks
+
+### Local
 ```bash
-# Full health check
-make server-health
-
-# Container status
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:3000
 docker compose ps
-
-# Backend health endpoint
-curl https://yourdomain.com/api/health | jq
 ```
 
----
-
-## Logs & Debugging
-
+### Remote
 ```bash
-# All services, live
-make logs
-
-# Specific service
-docker compose logs -f backend     # FastAPI + WebSocket
-docker compose logs -f ml          # STT + TTS
-docker compose logs -f vllm        # LLM inference
-docker compose logs -f postgres    # Database
-docker compose logs -f caddy        # HTTPS proxy + routing
-
-# Last N lines
-docker compose logs backend --tail 50
-
-# Search logs
-docker compose logs | grep "ERROR"
-docker compose logs vllm | grep "error"
+ssh -p 41447 ekduiteen@202.51.2.50
+cd /data/lipi
+docker compose -f docker-compose.lipi.yml ps
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:5001/health
+curl http://127.0.0.1:8100/v1/models
 ```
 
----
+## Local Operations
 
-## Restarting Services
-
+### Start local stack
 ```bash
-# Restart one service (fast, keeps others running)
+docker compose up -d postgres valkey minio minio-init backend frontend
+```
+
+### Restart local services
+```bash
 docker compose restart backend
-
-# Graceful restart (stop then start)
-docker compose stop backend
-docker compose start backend
-
-# Full restart (all services)
-docker compose down
-docker compose up -d
-
-# ⚠️ WARNING: Restarting vLLM takes ~5 min (reloads 32GB model)
-docker compose restart vllm
-```
-
----
-
-## Deployments
-
-```bash
-# Deploy latest code (pull, build, restart)
-make deploy
-# Or manually:
-cd /opt/lipi && bash scripts/deploy.sh
-
-# Update one service only (e.g., after code change to backend)
-docker compose build backend
-docker compose up -d backend
-```
-
----
-
-## Database Operations
-
-```bash
-# Open psql shell
-make db-shell
-# Or: docker compose exec postgres psql -U lipi -d lipi
-
-# Backup
-docker compose exec postgres pg_dump -U lipi lipi | gzip > backup.sql.gz
-
-# Restore from backup
-gunzip < backup.sql.gz | docker compose exec -T postgres psql -U lipi -d lipi
-
-# Reset database (DESTROYS ALL DATA)
-docker compose down -v postgres
-docker compose up -d postgres
-```
-
----
-
-## Cache / Session Store (Valkey)
-
-```bash
-# Open CLI
-make valkey-shell
-# Or: docker compose exec valkey valkey-cli
-
-# Check keys
-DBSIZE                    # Total keys
-KEYS *                    # List all (careful in prod!)
-GET lipi:session:xyz      # Get session data
-TTL lipi:session:xyz      # Time to live
-
-# Clear cache (careful!)
-FLUSHDB                   # Clear current DB
-FLUSHALL                  # Clear all DBs
-```
-
----
-
-## Object Storage (MinIO)
-
-```bash
-# Admin console
-# 1. SSH tunnel: ssh -L 9001:localhost:9001 user@server
-# 2. Visit: http://localhost:9001
-# 3. Login with MINIO_ACCESS_KEY / MINIO_SECRET_KEY from .env
-
-# Or use MinIO CLI
-docker compose exec minio mc admin info lipi
-
-# List buckets
-docker compose exec minio mc ls lipi/
-
-# List audio files
-docker compose exec minio mc ls lipi/lipi-audio/
-
-# Remove old files
-docker compose exec minio mc rm --recursive --older-than 30d lipi/lipi-audio/
-```
-
----
-
-## Performance & Monitoring
-
-```bash
-# Container resource usage
-docker compose stats
-
-# GPU utilization
-nvidia-smi                       # Live GPU stats
-nvidia-smi --query-gpu=name,utilization.gpu --format=csv --loop-ms=1000
-
-# CPU/Memory on server
-top -b -n 1 | head -20
-free -h
-df -h
-
-# Network connections
-ss -tlnp | grep -E ":80|:443|:8000|:5001|:8080|:5432"
-```
-
----
-
-## Firewall & Security
-
-```bash
-# Check UFW rules
-sudo ufw status verbose
-
-# Allow/deny access
-sudo ufw allow 22/tcp
-sudo ufw deny 5432/tcp
-
-# View recent failed connection attempts
-sudo journalctl -u ufw -n 20
-```
-
----
-
-## Certificate Management (HTTPS)
-
-```bash
-# Caddy handles Let's Encrypt automatically
-# Certificates stored in: /var/lib/docker/volumes/lipi_caddy_data/_data
-
-# Check certificate expiry
-docker compose logs caddy | grep -i certificate
-
-# Manual cert renewal (rarely needed)
-docker compose exec caddy caddy reload
-
-# For local testing with self-signed certs:
-# 1. Edit Caddyfile: uncomment "local_certs"
-# 2. docker compose restart caddy
-```
-
----
-
-## User Management (Future)
-
-```bash
-# Check users in database
-docker compose exec postgres psql -U lipi -d lipi -c "SELECT id, first_name, email, onboarding_completed_at FROM users;"
-
-# Delete a user (if needed for GDPR)
-docker compose exec postgres psql -U lipi -d lipi -c "DELETE FROM users WHERE id='<USER_ID>';"
-
-# Reset a user's data (sessions, points, badges)
-# See DATABASE_SCHEMA.md for cascading deletes
-```
-
----
-
-## Statistics & Analytics
-
-```bash
-# Total users
-docker compose exec postgres psql -U lipi -d lipi -c "SELECT COUNT(*) FROM users;"
-
-# Active sessions (live conversations)
-docker compose exec postgres psql -U lipi -d lipi -c "SELECT COUNT(*) FROM teaching_sessions WHERE ended_at IS NULL;"
-
-# Total points distributed
-docker compose exec postgres psql -U lipi -d lipi -c "SELECT SUM(final_points) FROM points_transactions;"
-
-# Top teachers (by points this month)
-docker compose exec postgres psql -U lipi -d lipi << 'SQL'
-SELECT first_name, points_this_month FROM users
-JOIN teacher_points_summary ON users.id = teacher_points_summary.teacher_id
-ORDER BY points_this_month DESC LIMIT 10;
-SQL
-```
-
----
-
-## Monitoring (Optional)
-
-```bash
-# Start Prometheus + Grafana
-make monitoring
-
-# Then access:
-# - Prometheus: http://localhost:9090 (or SSH tunnel -L 9090:localhost:9090)
-# - Grafana: http://localhost:3000 (default password: admin)
-
-# View service metrics
-curl http://localhost:8000/metrics | head -20  # FastAPI
-curl http://localhost:5001/metrics | head -20  # ML service
-curl http://localhost:8080/metrics | head -20  # vLLM
-```
-
----
-
-## Emergency Recovery
-
-### Service crashed / won't restart
-
-```bash
-# Check logs for error
-docker compose logs backend --tail 50
-
-# Rebuild image (slow but sometimes fixes environment issues)
-docker compose build --no-cache backend
-docker compose up -d backend
-
-# If that fails, check if a DB migration is needed
-docker compose logs postgres | grep -i "migration\|error"
-```
-
-### Database corruption / won't start
-
-```bash
-# Check postgres logs
-docker compose logs postgres
-
-# Try restart
+docker compose restart frontend
 docker compose restart postgres
-
-# If still fails, last resort (DESTROYS DATA):
-docker compose down -v postgres
-docker compose up -d postgres
-# You'll need to restore from backup
+docker compose restart valkey
+docker compose restart minio
 ```
 
-### vLLM OOM (runs out of GPU memory)
+### Rebuild local app services
+```bash
+docker compose up -d --build backend
+docker compose up -d --build frontend
+docker compose up -d --build ml
+```
+
+### Local logs
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f postgres
+docker compose logs -f valkey
+docker compose logs -f minio
+```
+
+## Remote Operations
+
+### SSH
+```bash
+ssh -p 41447 ekduiteen@202.51.2.50
+cd /data/lipi
+```
+
+### Restart remote Docker services
+```bash
+docker compose -f docker-compose.lipi.yml restart backend
+docker compose -f docker-compose.lipi.yml restart ml
+docker compose -f docker-compose.lipi.yml restart postgres
+docker compose -f docker-compose.lipi.yml restart valkey
+docker compose -f docker-compose.lipi.yml restart minio
+```
+
+### Rebuild remote Docker services
+```bash
+docker compose -f docker-compose.lipi.yml up -d --build backend
+docker compose -f docker-compose.lipi.yml up -d --build ml
+```
+
+### Remote logs
+```bash
+docker compose -f docker-compose.lipi.yml logs -f backend
+docker compose -f docker-compose.lipi.yml logs -f ml
+docker compose -f docker-compose.lipi.yml logs -f postgres
+docker compose -f docker-compose.lipi.yml logs -f valkey
+docker compose -f docker-compose.lipi.yml logs -f minio
+```
+
+## Host-Level Gemma Service
+
+Gemma is not managed by the main remote compose file. It runs as a host-level process on `:8100`.
+
+### Check Gemma
+```bash
+curl http://127.0.0.1:8100/v1/models
+```
+
+### If Gemma is down
+Check the custom server process and restart it from the host shell using the current launcher script:
+```bash
+python scripts/gemma_openai_server.py
+```
+
+If you change Gemma model/runtime behavior, update:
+- [scripts/gemma_openai_server.py](scripts/gemma_openai_server.py)
+- [DEV_ONBOARDING.md](DEV_ONBOARDING.md)
+
+## Tunnel / Hybrid Dev
+
+When running the frontend locally against remote inference/backend services:
 
 ```bash
-# Check GPU memory
-nvidia-smi
-
-# Reduce memory utilization in .env
-# Current: VLLM_GPU_MEMORY_UTILIZATION=0.85
-# Change to: VLLM_GPU_MEMORY_UTILIZATION=0.75
-
-# Redeploy
-docker compose build vllm
-docker compose up -d vllm
+ssh -N -p 41447 \
+  -L 8000:localhost:8000 \
+  -L 5001:localhost:5001 \
+  -L 8100:localhost:8100 \
+  -L 9000:localhost:9000 \
+  ekduiteen@202.51.2.50
 ```
 
-### All services down / won't start
-
+Then verify:
 ```bash
-# Check Docker
-docker info
-
-# Restart Docker daemon
-sudo systemctl restart docker
-
-# Then try again
-docker compose up -d
-
-# Check if ports are in use
-lsof -i :80
-lsof -i :443
-lsof -i :8000
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:5001/health
+curl http://127.0.0.1:8100/v1/models
 ```
 
----
+## Data Services
 
-## Scaling (Future)
-
-Currently: 1× instance with 2× L40S + all services on one host.
-
-For multi-instance scaling, see `DEPLOYMENT.md` (Kubernetes section).
-
----
-
-## Environment Changes
-
+### Postgres
 ```bash
-# Update .env (e.g., change GROQ_API_KEY)
-nano /opt/lipi/.env
-
-# Apply changes (no downtime if only env vars)
-docker compose up -d backend
-
-# Check it took effect
-docker compose logs backend | grep "GROQ_API_KEY"
+docker compose exec postgres psql -U lipi -d lipi
 ```
 
----
-
-## Useful Aliases
-
-Add to `~/.bashrc` on the server:
-
+### Valkey
 ```bash
-alias lipi-logs='cd /opt/lipi && make logs'
-alias lipi-health='cd /opt/lipi && make server-health'
-alias lipi-ps='docker compose ps'
-alias lipi-shell='docker compose exec postgres psql -U lipi -d lipi'
+docker compose exec valkey valkey-cli
 ```
 
-Then restart shell or `. ~/.bashrc`.
+### MinIO
+```bash
+docker compose logs minio --tail 50
+```
 
----
+## Common Checks
 
-## Further Reading
+### Backend healthy but Teach still broken
+Check:
+1. `curl http://127.0.0.1:8000/health`
+2. `curl http://127.0.0.1:5001/health`
+3. `curl http://127.0.0.1:8100/v1/models`
+4. `docker compose logs backend --tail 80`
 
-- **Deployment**: `DEPLOYMENT_QUICK_START.md`
-- **Architecture**: `DEV_ONBOARDING.md`, section 6
-- **Database Schema**: `DATABASE_SCHEMA.md`
-- **Gamification**: `GAMIFICATION_DATA_MODEL.md`
-- **Troubleshooting**: `DEPLOYMENT_QUICK_START.md`, "Troubleshooting" section
+### Frontend loads but data does not
+Usually means:
+- local `:3000` is fine
+- backend on `:8000` is not reachable or not the expected service
+
+### TTS feels wrong
+Check:
+- current Piper voice id in `ml/tts.py`
+- whether English/Nepali split routing is actually deployed remotely
+
+### STT is weak on Newari / mixed speech
+This is still a known product limitation, not just an ops issue.
+
+## Current Known Weak Spots
+
+- Newari and mixed-language STT quality
+- voice feel and language-specific TTS quality
+- rigid response delivery despite stronger backend planning
+
+Those are product-quality issues. Don’t mistake them for infra breakage unless health checks fail.
+
+## Canonical Docs
+
+- [README.md](README.md)
+- [CLAUDE.md](CLAUDE.md)
+- [DEV_ONBOARDING.md](DEV_ONBOARDING.md)
+- [HANDOVER_TO_CODEX.md](HANDOVER_TO_CODEX.md)

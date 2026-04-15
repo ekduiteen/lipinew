@@ -6,12 +6,17 @@ python-multipart==0.0.12
 # STT
 faster-whisper==1.0.3
 
-# TTS
+# TTS — Piper (Nepali fallback, always loaded)
 torch==2.4.1
 torchaudio==2.4.1
 scipy==1.14.1
 numpy==1.26.4
 piper-tts==1.4.2
+
+# TTS — Coqui XTTSv2 (primary; ~1.8 GB model downloaded on first run)
+# Model cache dir is controlled by TTS_HOME env var (default ~/.local/share/tts)
+# Mount a Docker volume at that path to persist across container restarts.
+TTS>=0.22.0
 
 # Audio
 soundfile==0.12.1

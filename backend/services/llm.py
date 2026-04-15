@@ -34,6 +34,8 @@ _DEVANAGARI_WORD_RE = re.compile(r"[\u0900-\u097F]+")
 _LATIN_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 _PAREN_RE = re.compile(r"\([^)]*\)")
 _MULTISPACE_RE = re.compile(r"\s+")
+_REPEATED_WORD_RE = re.compile(r"\b([A-Za-z]+)\s+\1\b", re.IGNORECASE)
+_REPEATED_DEVANAGARI_RE = re.compile(r"([\u0900-\u097F]+)\s+\1")
 _REPETITIVE_CLOSERS = {
     "तिमीलाई कस्तो छ?",
     "तिमीलाई के-के कुरा सिक्न मन छ?",
@@ -45,6 +47,36 @@ _LESSON_META_PATTERNS = (
     "तिमी नेपाली भाषा सिक्दै छौ",
     "मलाई तिमी भनेर सम्बोधन गर्छौ",
     "तिमी के भन्न खोज्दै छौ",
+)
+_GENERIC_FILLER_PATTERNS = (
+    "Teach me more",
+    "teach me more",
+    "Can you explain further",
+    "Tell me more about this in detail",
+    "मलाई अझ धेरै सिकाऊ",
+    "अझै सिकाउनुस्",
+)
+_ROBOTIC_PHRASES = (
+    "I will learn from you",
+    "I am learning from you",
+    "That is very interesting",
+    "म तिमीले सिकाएको",
+    "म सिक्दै छु",
+    "यो निकै रोचक छ",
+    "तपाईंले सिकाउनुभएको",
+)
+_FORMAL_TO_SPOKEN = (
+    ("कृपया", ""),
+    ("हुन्छ ?", "हुन्छ?"),
+    ("हो र?", "हो?"),
+)
+_GENERIC_QUESTION_ENDINGS = (
+    "teach me more",
+    "tell me more",
+    "explain more",
+    "what else",
+    "के अरू",
+    "अझै",
 )
 
 
@@ -145,8 +177,14 @@ def _postprocess_teacher_reply(text: str) -> str:
     cleaned = _PAREN_RE.sub(" ", text)
     for marker in _EMOJI_MARKERS:
         cleaned = cleaned.replace(marker, " ")
+    for marker in _GENERIC_FILLER_PATTERNS:
+        cleaned = cleaned.replace(marker, " ")
+    for phrase in _ROBOTIC_PHRASES:
+        cleaned = cleaned.replace(phrase, " ")
     cleaned = cleaned.replace("\r", " ").replace("\n", " ")
     cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
+    cleaned = _REPEATED_WORD_RE.sub(r"\1", cleaned)
+    cleaned = _REPEATED_DEVANAGARI_RE.sub(r"\1", cleaned)
 
     if not cleaned:
         return ""
@@ -170,10 +208,49 @@ def _postprocess_teacher_reply(text: str) -> str:
             cleaned = cleaned.replace(pattern, "").strip(" ,।")
             cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
 
+    if cleaned.count("?") > 1:
+        first = cleaned.find("?")
+        cleaned = cleaned[: first + 1] + cleaned[first + 1 :].replace("?", "")
+    if cleaned.count("？") > 1:
+        first = cleaned.find("？")
+        cleaned = cleaned[: first + 1] + cleaned[first + 1 :].replace("？", "")
+
+    for from_text, to_text in _FORMAL_TO_SPOKEN:
+        cleaned = cleaned.replace(from_text, to_text)
+
+    cleaned = _strip_generic_questions(cleaned)
+    cleaned = _normalize_spoken_pacing(cleaned)
+
     if len(cleaned) > 140:
         cleaned = cleaned[:140].rsplit(" ", 1)[0].rstrip(" ,;:-") + "।"
 
     return cleaned
+
+
+def _strip_generic_questions(text: str) -> str:
+    stripped = text.strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return stripped
+    if any(lowered.endswith(ending) for ending in _GENERIC_QUESTION_ENDINGS):
+        pieces = re.split(r"(?<=[।!?])\s+", stripped)
+        stripped = pieces[0].strip() if pieces else stripped
+    return stripped
+
+
+def _normalize_spoken_pacing(text: str) -> str:
+    parts = [part.strip() for part in re.split(r"(?<=[।!?])\s+", text) if part.strip()]
+    clipped: list[str] = []
+    for part in parts[:2]:
+        words = part.split()
+        if len(words) > 14:
+            part = " ".join(words[:14]).rstrip(",;:-")
+            if not part.endswith(("।", "?", "!")):
+                part += "।"
+        clipped.append(part)
+    normalized = " ".join(clipped).strip()
+    normalized = _MULTISPACE_RE.sub(" ", normalized).strip()
+    return normalized
 
 
 async def _rewrite_to_pure_nepali(
@@ -230,6 +307,29 @@ def _postprocess_multilingual_reply(text: str) -> str:
     if not cleaned:
         return "Sorry, please say that once more."
     return cleaned
+
+
+def build_low_confidence_reply(mode: str) -> str:
+    if mode == "english":
+        return "I didn't quite catch that. Can you say it once more?"
+    if mode == "mixed":
+        return "म अलि बुझिनँ. Can you say that once more?"
+    return "म अलि बुझिनँ। फेरि भन्न सक्छौ?"
+
+
+def build_medium_confidence_reply(teacher_text: str, mode: str) -> str:
+    snippet = " ".join(teacher_text.strip().split()[:7]).strip(" ,")
+    if mode == "english":
+        if snippet:
+            return f"It sounds like you meant '{snippet}'. Is that right?"
+        return "It sounds like I only caught part of that. Is that right?"
+    if mode == "mixed":
+        if snippet:
+            return f"तिमीले '{snippet}' भन्न खोज्यौ जस्तो लाग्यो. Right?"
+        return "तिमीले के भन्न खोज्यौ जस्तो लाग्यो. Right?"
+    if snippet:
+        return f"तिमीले '{snippet}' भन्न खोज्यौ जस्तो लाग्यो, है?"
+    return "तिमीले के भन्न खोज्यौ जस्तो लाग्यो, है?"
 
 
 # ─── Groq fallback ───────────────────────────────────────────────────────────

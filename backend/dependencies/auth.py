@@ -12,10 +12,10 @@ since browsers cannot send Authorization headers on WebSocket upgrades.
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from routes.auth import decode_access_token
+from jwt_utils import decode_access_token
 
 _bearer = HTTPBearer(auto_error=True)
 
@@ -25,6 +25,33 @@ async def get_current_user(
 ) -> str:
     """Decode Bearer JWT → user_id. Raises 401 on invalid/expired token."""
     return decode_access_token(credentials.credentials)
+
+
+async def get_current_user_flexible(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        HTTPBearer(auto_error=False)
+    ),
+    token: str = Query(default=""),
+) -> str:
+    """
+    Decode JWT from either:
+    - Authorization: Bearer <token>  (standard REST)
+    - ?token=<jwt>                    (legacy/stale frontend session proxy)
+
+    Prefer the Authorization header when present.
+    """
+    if credentials is not None:
+        return decode_access_token(credentials.credentials)
+
+    query_token = token or request.query_params.get("token", "")
+    if query_token:
+        return decode_access_token(query_token)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+    )
 
 
 async def get_current_user_optional(

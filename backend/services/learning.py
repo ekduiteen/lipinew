@@ -46,6 +46,19 @@ _HINDI_REPLY_MARKERS = (
     "नहीं",
     "लेकिन",
 )
+_LEARNER_META_REPLY_MARKERS = (
+    "तपाईंले मलाई सिकाउनुभयो",
+    "तपाईंले भन्नुभयो",
+    "म सिक्नको लागि",
+    "मलाई यो नयाँ कुरा सिक्न",
+    "मलाई धेरै रमाइलो लाग्यो",
+    "मलाई धेरै मन लाग्यो",
+    "म विद्यार्थी हुँ",
+    "you are teaching me",
+    "i am excited to learn",
+    "i understand,",
+    "oh, i understand",
+)
 
 
 # ─── Extraction prompt ───────────────────────────────────────────────────────
@@ -79,12 +92,21 @@ async def enqueue_turn(
     teacher_text: str,
     lipi_response: str,
     stt_result: dict,
+    hearing_result: dict | None = None,
+    turn_interpretation: dict | None = None,
+    input_understanding: dict | None = None,
+    behavior_policy: dict | None = None,
+    audio_path: str | None = None,
+    target_language: str | None = None,
 ) -> None:
     """Persist a learning job to Valkey so extraction is durable and retryable."""
     should_enqueue, reason = _should_learn_from_turn(
         teacher_text=teacher_text,
         lipi_response=lipi_response,
         stt_result=stt_result,
+        hearing_result=hearing_result,
+        turn_interpretation=turn_interpretation,
+        target_language=target_language,
     )
     if not should_enqueue:
         logger.info("Skipping learning enqueue: %s", reason)
@@ -97,6 +119,12 @@ async def enqueue_turn(
         "teacher_text": teacher_text,
         "lipi_response": lipi_response,
         "stt_result": stt_result,
+        "hearing_result": hearing_result or {},
+        "turn_interpretation": turn_interpretation or {},
+        "input_understanding": input_understanding or {},
+        "behavior_policy": behavior_policy or {},
+        "audio_path": audio_path,
+        "target_language": target_language or "",
         "attempt": 0,
         "enqueued_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -108,16 +136,27 @@ def _should_learn_from_turn(
     teacher_text: str,
     lipi_response: str,
     stt_result: dict,
+    hearing_result: dict | None = None,
+    turn_interpretation: dict | None = None,
+    target_language: str | None = None,
 ) -> tuple[bool, str]:
     teacher_text = teacher_text.strip()
     lipi_response = lipi_response.strip()
     detected_language = str(stt_result.get("language", "") or "").strip().lower()
     stt_confidence = float(stt_result.get("confidence", 0.0) or 0.0)
+    if hearing_result:
+        if not bool(hearing_result.get("learning_allowed", True)):
+            return False, f"hearing_blocked={','.join(hearing_result.get('reason_codes', [])) or 'unknown'}"
 
     if len(teacher_text) < 3:
         return False, "teacher_text_too_short"
 
-    if detected_language != settings.learning_required_teacher_language:
+    normalized_target = (target_language or "").strip().lower()
+    newar_targets = {"newar", "newari", "newa", "nepal bhasa"}
+    if normalized_target in newar_targets:
+        if detected_language not in {"ne", "new"}:
+            return False, f"teacher_language={detected_language or 'unknown'}"
+    elif detected_language != settings.learning_required_teacher_language:
         return False, f"teacher_language={detected_language or 'unknown'}"
 
     if stt_confidence < settings.learning_min_stt_confidence:
@@ -135,6 +174,14 @@ def _should_learn_from_turn(
 
     if any(marker in lowered_reply for marker in _HINDI_REPLY_MARKERS):
         return False, "assistant_hindi_mixed"
+
+    if any(marker in lowered_reply for marker in _LEARNER_META_REPLY_MARKERS):
+        return False, "assistant_learner_meta"
+
+    if turn_interpretation:
+        intent_type = str(turn_interpretation.get("intent_type") or "")
+        if intent_type == "unknown" and len(teacher_text.split()) < 5:
+            return False, "low_signal_unknown_intent"
 
     return True, "ok"
 
@@ -180,6 +227,12 @@ async def run_worker(http: httpx.AsyncClient) -> None:
                 teacher_text=str(job["teacher_text"]),
                 lipi_response=str(job["lipi_response"]),
                 stt_result=dict(job.get("stt_result", {})),
+                hearing_result=dict(job.get("hearing_result", {})),
+                turn_interpretation=dict(job.get("turn_interpretation", {})),
+                input_understanding=dict(job.get("input_understanding", {})),
+                behavior_policy=dict(job.get("behavior_policy", {})),
+                audio_path=str(job.get("audio_path") or "") or None,
+                target_language=str(job.get("target_language", "") or ""),
                 http=http,
             )
             await valkey.lrem(_PROCESSING_KEY, 1, raw)
@@ -220,14 +273,25 @@ async def _run(
     teacher_text: str,
     lipi_response: str,
     stt_result: dict,
+    hearing_result: dict,
+    turn_interpretation: dict,
+    input_understanding: dict,
+    behavior_policy: dict,
+    audio_path: str | None,
+    target_language: str,
     http: httpx.AsyncClient,
 ) -> None:
     from services import llm as llm_svc
     from services import points as points_svc
+    from services import speaker_embeddings as speaker_embeddings_svc
 
     # ── OBSERVE ───────────────────────────────────────────────────────────────
     stt_confidence: float = stt_result.get("confidence", 0.0)
     audio_quality_ok: bool = stt_confidence >= settings.learning_min_stt_confidence
+
+    if hearing_result and not bool(hearing_result.get("learning_allowed", True)):
+        logger.debug("Hearing gate blocked learning: %s", hearing_result.get("reason_codes"))
+        return
 
     if not audio_quality_ok:
         logger.debug("Low STT confidence (%.2f) — skipping extraction", stt_confidence)
@@ -292,6 +356,29 @@ async def _run(
                 stt_confidence=stt_confidence,
             )
 
+        usage_rule_count = await _store_usage_rules(
+            db=db,
+            teacher_id=user_id,
+            session_id=session_id,
+            teacher_text=teacher_text,
+            turn_interpretation=turn_interpretation,
+            input_understanding=input_understanding,
+            audio_path=audio_path,
+        )
+        speaker_embedding_stored = False
+        speaker_embedding_reason = "not_attempted"
+        if audio_path:
+            speaker_embedding_stored, speaker_embedding_reason = await speaker_embeddings_svc.extract_and_store(
+                db=db,
+                http=http,
+                teacher_id=user_id,
+                session_id=session_id,
+                audio_path=audio_path,
+                detected_language=str(input_understanding.get("primary_language") or stt_result.get("language") or ""),
+                stt_confidence=stt_confidence,
+                hearing_result=hearing_result,
+            )
+
         for _ in range(new_word_count):
             await points_svc.log_transaction(
                 db,
@@ -308,6 +395,33 @@ async def _run(
                 new_word_count,
                 session_id,
                 user_id,
+            )
+        elif usage_rule_count > 0:
+            await db.commit()
+        elif speaker_embedding_stored:
+            await db.commit()
+
+        if turn_interpretation.get("is_correction"):
+            logger.info(
+                "Captured correction-heavy learning turn topic=%s session=%s",
+                turn_interpretation.get("active_topic"),
+                session_id,
+            )
+        if input_understanding.get("is_teaching"):
+            logger.info(
+                "Teaching turn preserved for async learning topic=%s language=%s policy=%s",
+                input_understanding.get("topic"),
+                input_understanding.get("primary_language"),
+                behavior_policy.get("confirmation_style"),
+            )
+        if speaker_embedding_stored:
+            logger.info("Speaker embedding captured session=%s user=%s", session_id, user_id)
+        elif audio_path:
+            logger.debug(
+                "Speaker embedding skipped session=%s user=%s reason=%s",
+                session_id,
+                user_id,
+                speaker_embedding_reason,
             )
 
 
@@ -338,6 +452,8 @@ async def _upsert_vocabulary(
 
     if row is None:
         vocab_id = str(uuid.uuid4())
+        previous_confidence = 0.0
+        new_confidence = min(stt_confidence, 0.9)
         await db.execute(
             text(
                 """
@@ -352,13 +468,22 @@ async def _upsert_vocabulary(
                 "word": word,
                 "lang": language,
                 "defn": definition_en,
-                "conf": min(stt_confidence, 0.9),
+                "conf": new_confidence,
                 "pioneer": user_id,
             },
         )
         is_pioneer = True
     else:
         vocab_id = str(row[0])
+        previous_confidence = 0.0
+        new_confidence = 0.0
+        confidence_row = await db.execute(
+            text("SELECT confidence FROM vocabulary_entries WHERE id = :id"),
+            {"id": vocab_id},
+        )
+        confidence_value = confidence_row.scalar()
+        previous_confidence = float(confidence_value or 0.0)
+        new_confidence = min(previous_confidence + 0.05, 1.0)
         await db.execute(
             text(
                 """
@@ -371,6 +496,27 @@ async def _upsert_vocabulary(
             ),
             {"id": vocab_id},
         )
+
+    await db.execute(
+        text(
+            """
+            INSERT INTO knowledge_confidence_history
+                (id, teacher_id, session_id, knowledge_key, language_key, previous_confidence, new_confidence, change_reason, is_contradiction_hook, created_at)
+            VALUES
+                (:id, :teacher_id, :session_id, :knowledge_key, :language_key, :previous_confidence, :new_confidence, :change_reason, false, NOW())
+            """
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "teacher_id": user_id,
+            "session_id": session_id,
+            "knowledge_key": word,
+            "language_key": language,
+            "previous_confidence": previous_confidence,
+            "new_confidence": new_confidence,
+            "change_reason": "learning_turn",
+        },
+    )
 
     await db.execute(
         text(
@@ -406,3 +552,47 @@ async def _upsert_vocabulary(
         )
 
     return 1 if is_pioneer else 0
+
+
+async def _store_usage_rules(
+    *,
+    db: AsyncSession,
+    teacher_id: str,
+    session_id: str,
+    teacher_text: str,
+    turn_interpretation: dict,
+    input_understanding: dict,
+    audio_path: str | None,
+) -> int:
+    if not (turn_interpretation.get("is_correction") or input_understanding.get("is_teaching")):
+        return 0
+
+    topic_key = str(input_understanding.get("topic") or turn_interpretation.get("active_topic") or "everyday_basics")
+    language_key = str(input_understanding.get("primary_language") or "ne")
+    rule_type = "correction_rule" if turn_interpretation.get("is_correction") else "teaching_example"
+    rule_text = teacher_text.strip()
+    if len(rule_text) < 4:
+        return 0
+
+    await db.execute(
+        text(
+            """
+            INSERT INTO usage_rules
+                (id, teacher_id, session_id, topic_key, language_key, rule_type, rule_text, source_text, confidence, created_at)
+            VALUES
+                (:id, :teacher_id, :session_id, :topic_key, :language_key, :rule_type, :rule_text, :source_text, :confidence, NOW())
+            """
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "teacher_id": teacher_id,
+            "session_id": session_id,
+            "topic_key": topic_key,
+            "language_key": language_key,
+            "rule_type": rule_type,
+            "rule_text": rule_text[:1500],
+            "source_text": audio_path or teacher_text[:500],
+            "confidence": max(0.55, min(float(input_understanding.get("transcript_confidence", 0.7)), 0.95)),
+        },
+    )
+    return 1

@@ -4,6 +4,20 @@ from .session import TeachingSession
 from .points import PointsTransaction, TeacherPointsSummary
 from .badge import Badge, TeacherBadge
 from .message import Message
+from .curriculum import (
+    UserCurriculumProfile,
+    UserTopicCoverage,
+    GlobalLanguageCoverage,
+    CurriculumPromptEvent,
+)
+from .intelligence import (
+    CorrectionEvent,
+    SessionMemorySnapshot,
+    TeacherSignal,
+    TeacherCredibilityEvent,
+    KnowledgeConfidenceHistory,
+    UsageRule,
+)
 
 __all__ = [
     "Base",
@@ -14,4 +28,14 @@ __all__ = [
     "Badge",
     "TeacherBadge",
     "Message",
+    "UserCurriculumProfile",
+    "UserTopicCoverage",
+    "GlobalLanguageCoverage",
+    "CurriculumPromptEvent",
+    "CorrectionEvent",
+    "SessionMemorySnapshot",
+    "TeacherSignal",
+    "TeacherCredibilityEvent",
+    "KnowledgeConfidenceHistory",
+    "UsageRule",
 ]

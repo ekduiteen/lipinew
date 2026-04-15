@@ -1,20 +1,15 @@
 /**
  * REST API client — all calls to /api/*
- * In dev: NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
- * In prod: empty string (Caddy proxies /api/* from the same origin)
+ * Tokens are stored in httpOnly cookies, automatically sent with requests.
+ * No manual Authorization header needed — fetch auto-sends cookies.
  */
 
 const BASE = "/api/proxy";
 
 function authHeader(): HeadersInit {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("lipi.token") : null;
-  if (!token) {
-    console.warn("No JWT token found in localStorage");
-  } else {
-    console.log("JWT token found, sending Authorization header");
-  }
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // httpOnly cookies are automatically sent by fetch, no need to set Authorization header
+  // The cookie transport is more secure than reading from localStorage
+  return {};
 }
 
 async function request<T>(
@@ -49,10 +44,7 @@ async function request<T>(
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export interface AuthResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  user_id: string;
+  success: true;
   onboarding_complete: boolean;
 }
 
@@ -60,6 +52,7 @@ export async function exchangeGoogleCode(
   code: string,
   redirectUri: string
 ): Promise<AuthResponse> {
+  // Calls Next.js proxy which sets httpOnly cookies and returns success
   const res = await fetch("/api/auth/google", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,6 +66,7 @@ export async function exchangeGoogleCode(
 }
 
 export async function demoLogin(): Promise<AuthResponse> {
+  // Calls Next.js proxy which sets httpOnly cookies and returns success
   const res = await fetch("/api/auth/demo", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -114,13 +108,8 @@ export interface SessionMeta {
 }
 
 export async function createSession(): Promise<SessionMeta> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("lipi.token") : null;
-  if (!token) {
-    throw new Error("No JWT token found");
-  }
-  // Use same-origin Next.js API route to avoid CORS on POST
-  const res = await fetch(`/api/sessions?token=${encodeURIComponent(token)}`, {
+  // httpOnly cookie is automatically sent with this request
+  const res = await fetch(`/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });

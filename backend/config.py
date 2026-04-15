@@ -1,6 +1,7 @@
 """Centralized settings — all values from environment."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -45,11 +46,24 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
 
     # Auth — env var is JWT_EXPIRY_HOURS, stored internally as minutes
-    jwt_secret: str = "change-me"
+    jwt_secret: str  # REQUIRED — no default, must be set via JWT_SECRET env var
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 720          # maps to JWT_EXPIRY_HOURS in .env
     google_client_id: str = ""
     google_client_secret: str = ""
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        """Validate JWT secret is secure."""
+        if not v or v in ("change-me", "changeme"):
+            raise ValueError(
+                "JWT_SECRET cannot be empty or a weak default — "
+                "use a 64+ character random string (e.g., from `openssl rand -hex 32`)"
+            )
+        if len(v) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long")
+        return v
 
     @property
     def jwt_expire_minutes(self) -> int:

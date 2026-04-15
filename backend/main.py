@@ -5,11 +5,14 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text, select
 from urllib.parse import urlsplit, urlunsplit
+from slowapi.errors import RateLimitExceeded
+from rate_limit import limiter
 
 from cache import valkey
 from config import settings
@@ -48,11 +51,29 @@ async def _summary_rebuild_loop() -> None:
 async def lifespan(app: FastAPI):
     logger.info("LIPI backend starting (env=%s)", settings.environment)
 
-    # Initialize database schema
-    from models.base import Base
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database schema initialized")
+    # Validate JWT_SECRET is securely configured (defensive check)
+    if not settings.jwt_secret or len(settings.jwt_secret) < 32:
+        raise RuntimeError(
+            "JWT_SECRET is not securely configured. "
+            "Set JWT_SECRET env var to a 32+ character random string."
+        )
+    logger.debug("JWT_SECRET validation passed")
+
+    # Run database migrations (Alembic — replaces Base.metadata.create_all)
+    from alembic.config import Config as AlembicConfig
+    from alembic.command import upgrade as alembic_upgrade
+
+    alembic_cfg = AlembicConfig("alembic.ini")
+    await asyncio.to_thread(alembic_upgrade, alembic_cfg, "head")
+    logger.info("Database migrations applied")
+
+    # Validate Valkey is reachable before serving traffic
+    try:
+        await valkey.ping()
+        logger.info("Valkey reachable")
+    except Exception as exc:
+        logger.critical("Valkey unreachable at startup: %s", exc)
+        raise RuntimeError("Cannot start backend without Valkey connection") from exc
 
     app.state.http = httpx.AsyncClient(timeout=settings.ml_timeout)
     summary_task = asyncio.create_task(_summary_rebuild_loop())
@@ -69,6 +90,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
+
+# ─── Rate Limiting ───────────────────────────────────────────────────────────────
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """Handle rate limit exceeded errors."""
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+    )
 
 
 def _expand_local_origins(raw_origins: str) -> list[str]:
@@ -93,9 +126,28 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# ─── Request Size Limit Middleware ───────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as StarletteResponse
+
+_MAX_UPLOAD_BYTES = 100_000_000  # 100 MB
+
+
+class _LimitUploadSizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH"):
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > _MAX_UPLOAD_BYTES:
+                return StarletteResponse("Payload too large", status_code=413)
+        return await call_next(request)
+
+
+app.add_middleware(_LimitUploadSizeMiddleware)
 
 
 class HealthResponse(BaseModel):
@@ -138,6 +190,11 @@ app.include_router(sessions.router)
 app.include_router(leaderboard.router)
 app.include_router(teachers.router)
 app.include_router(dashboard.router)
+
+# ─── Rate limiting config ─────────────────────────────────────────────────────
+# The limiter is registered and exception handler set up above
+# Specific endpoints use the @limiter.limit() decorator (defined in route files)
+app.limiter = limiter  # Make limiter available to routes
 
 
 @app.get("/health", response_model=HealthResponse)

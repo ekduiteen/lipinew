@@ -7,9 +7,22 @@ import styles from "./auth.module.css";
 
 const GOOGLE_SCOPE = "openid email profile";
 
+function getCanonicalAuthOrigin() {
+  const configured =
+    process.env.NEXT_PUBLIC_AUTH_ORIGIN ||
+    process.env.NEXTAUTH_URL ||
+    "http://localhost:3000";
+
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return "http://localhost:3000";
+  }
+}
+
 function googleAuthUrl() {
   const base = "https://accounts.google.com/o/oauth2/v2/auth";
-  const redirectUri = `${window.location.origin}/auth`;
+  const redirectUri = `${getCanonicalAuthOrigin()}/auth`;
   const params = new URLSearchParams({
     client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "",
     redirect_uri: redirectUri,
@@ -28,11 +41,11 @@ function AuthPageInner() {
   useEffect(() => {
     const code = params.get("code");
     if (!code) return;
-    const redirectUri = `${window.location.origin}/auth`;
+    const redirectUri = `${getCanonicalAuthOrigin()}/auth`;
     exchangeGoogleCode(code, redirectUri)
       .then((res: AuthResponse) => {
-        localStorage.setItem("lipi.token", res.access_token);
-        localStorage.setItem("lipi.user_id", res.user_id);
+        // Token is now stored in httpOnly cookie by backend
+        // No need to store in localStorage
         router.replace(res.onboarding_complete ? "/home" : "/onboarding");
       })
       .catch((err) => {
@@ -44,8 +57,8 @@ function AuthPageInner() {
   function handleDemoLogin() {
     demoLogin()
       .then((res: AuthResponse) => {
-        localStorage.setItem("lipi.token", res.access_token);
-        localStorage.setItem("lipi.user_id", res.user_id);
+        // Token is now stored in httpOnly cookie by backend
+        // No need to store in localStorage
         router.replace(res.onboarding_complete ? "/home" : "/onboarding");
       })
       .catch(() => {});

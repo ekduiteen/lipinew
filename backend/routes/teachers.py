@@ -75,6 +75,7 @@ async def complete_onboarding(
     user.last_name = payload.last_name
     user.age = payload.age
     user.primary_language = payload.native_language
+    user.other_languages = payload.other_languages
     user.gender = payload.gender
     user.hometown = payload.city_or_village
     user.education_level = payload.education_level
@@ -95,6 +96,7 @@ async def complete_onboarding(
         "age": payload.age,
         "gender": payload.gender,
         "native_language": payload.native_language,
+        "other_languages": payload.other_languages,
         "city_or_village": payload.city_or_village,
         "register": register,
         "energy_level": 3,
@@ -102,7 +104,11 @@ async def complete_onboarding(
         "code_switch_ratio": 0.2,
         "session_phase": 1,
         "previous_topics": [],
-        "preferred_topics": [],
+        "preferred_topics": (
+            ["regional_variation", "culture_ritual"]
+            if payload.native_language.lower() in {"newar", "newari", "nepal bhasa", "newa"}
+            else []
+        ),
     }
     await valkey.setex(
         _PROFILE_KEY.format(user_id=user_id),

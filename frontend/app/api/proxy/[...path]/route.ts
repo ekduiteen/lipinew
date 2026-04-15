@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 const BACKEND =
   process.env.BACKEND_URL ||
@@ -11,12 +12,18 @@ async function forward(req: NextRequest, path: string[]) {
     upstreamUrl.searchParams.set(key, value);
   });
 
+  const cookieStore = await cookies();
+  const token = cookieStore.get("lipi.token")?.value;
   const headers = new Headers();
   const contentType = req.headers.get("content-type");
   const authorization = req.headers.get("authorization");
 
   if (contentType) headers.set("content-type", contentType);
-  if (authorization) headers.set("authorization", authorization);
+  if (authorization) {
+    headers.set("authorization", authorization);
+  } else if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
 
   const method = req.method;
   const body =

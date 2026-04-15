@@ -1,7 +1,9 @@
 # LIPI — Developer Onboarding Guide
 
 > **Living document. Update rule: every PR that adds a service, endpoint, pattern, or architectural decision MUST include a corresponding update to this file. No exceptions. If you shipped it and didn't document it here, it didn't happen.**
-> Last synced: 2026-04-15 — Updated handover for Gemma + Piper, added dashboard and topic-memory notes, documented multilingual turn guidance, and clarified the current remote Whisper deployment state.
+> Last synced: 2026-04-16 — Multi-engine brain live; structured training-data capture live; async speaker-embedding capture path implemented with ML `/speaker-embed` + backend learning worker storage.
+
+> **Docs rule:** this file, `README.md`, `OPERATIONS.md`, `CLAUDE.md`, `DATABASE_SCHEMA.md`, `PHASE_ROADMAP.md`, and `HANDOVER_TO_CODEX.md` are the canonical docs. Do not add another status/quickstart/handover summary file unless there is a genuinely new audience and no existing canonical doc fits.
 
 ---
 
@@ -27,16 +29,16 @@ lipi/
 ├── CLAUDE.md                   ← Engineering source of truth. Read before coding.
 ├── PHASE_ROADMAP.md            ← 16-week delivery roadmap
 ├── DEV_ONBOARDING.md           ← you are here
-├── README_DEV.md               ← local setup quick-start
 ├── docker-compose.yml          ← full stack definition
 ├── Caddyfile                   ← reverse proxy config
 ├── .env.example                ← all env vars with comments
 ├── init-db.sql                 ← PostgreSQL schema + pgvector + badge seed
 │
 ├── ml/                         ← GPU microservice (STT + TTS)
-│   ├── main.py                 ← FastAPI app, /health /stt /tts /models/info
+│   ├── main.py                 ← FastAPI app, /health /stt /tts /speaker-embed /models/info
 │   ├── stt.py                  ← STTService (faster-whisper large-v3)
-│   ├── tts.py                  ← TTSService (Piper Nepali)
+│   ├── speaker_embed.py        ← async-only 512-d acoustic signature extractor
+│   ├── tts.py                  ← TTSService (Piper with language-based voice routing)
 │   ├── requirements.txt
 │   └── Dockerfile
 │
@@ -58,16 +60,35 @@ lipi/
 │   │   ├── auth.py             ← POST /api/auth/google, /api/auth/refresh
 │   │   ├── sessions.py         ← POST /api/sessions + WS /ws/session/{id}
 │   │   ├── leaderboard.py      ← GET /api/leaderboard?period=weekly|monthly|all_time
-│   │   └── teachers.py         ← POST /api/teachers/onboarding (JWT), GET /me/stats, GET /me/badges
+│   │   ├── teachers.py         ← POST /api/teachers/onboarding (JWT), GET /me/stats, GET /me/badges
+│   │   └── dashboard.py        ← dashboard / coverage / brain-health APIs
 │   └── services/
 │       ├── prompt_builder.py   ← build_system_prompt(TeacherProfile) → str
 │       ├── llm.py              ← vLLM streaming + Groq fallback
 │       ├── stt.py              ← HTTP client to ml:5001/stt + Groq fallback
-│       ├── tts.py              ← HTTP client to ml:5001/tts + silence fallback
+│       ├── tts.py              ← HTTP client to ml:5001/tts + language-aware routing
 │       ├── points.py           ← calculate_points, log_transaction, rebuild_summary
 │       ├── badges.py           ← check_and_award (idempotent)
 │       ├── message_store.py    ← persist_teacher_turn, persist_lipi_turn (permanent DB)
 │       ├── learning.py         ← OBSERVE→EXTRACT→STORE vocabulary cycle (background task)
+│       ├── hearing.py          ← transcript quality gate / mode router
+│       ├── turn_interpreter.py ← turn meaning / correction / topic inference
+│       ├── input_understanding.py ← structured teacher-turn signals
+│       ├── teacher_modeling.py ← teacher credibility / style / expertise model
+│       ├── memory_service.py   ← structured session memory + durable snapshots
+│       ├── correction_graph.py ← persistent correction events + rule hooks
+│       ├── behavior_policy.py  ← explicit response behavior policy
+│       ├── response_orchestrator.py ← centralized LLM request assembly
+│       ├── post_generation_guard.py ← post-generation language / tone / repetition guard
+│       ├── training_capture.py ← 3-layer training-data envelope builder
+│       ├── audio_storage.py    ← best-effort raw teacher audio capture to MinIO
+│       ├── speaker_embeddings.py ← async ML client + pgvector storage path
+│       ├── speaker_clustering.py ← lightweight incremental dialect-cluster assignment
+│       ├── routing_hooks.py    ← future-safe adapter / voice / routing hooks
+│       ├── curriculum.py       ← question planning + lane assignment
+│       ├── diversity.py        ← global gap scoring
+│       ├── personality.py      ← deterministic response planning
+│       ├── response_cleanup.py ← spoken-output cleanup filter
 │       └── topic_memory.py     ← lightweight session memory for active language/topics/taught words
 │
 ├── frontend/                   ← Next.js 14 PWA (App Router)
@@ -80,7 +101,7 @@ lipi/
 │   │   └── (tabs)/             ← Tab layout with BottomNav
 │   │       ├── layout.tsx
 │   │       ├── home/page.tsx   ← Stats + CTA + mini-leaderboard
-│   │       ├── teach/page.tsx  ← Orb + VAD + WebSocket conversation
+│   │       ├── teach/page.tsx  ← Orb + VAD + WebSocket conversation + live subtitles
 │   │       ├── ranks/page.tsx  ← Weekly/monthly/all-time leaderboard
 │   │       └── settings/page.tsx ← Theme picker + dashboard link
 │   ├── components/
@@ -108,18 +129,18 @@ RAM:     256 GB
 Storage: 4 TB NVMe
 GPUs:    1× NVIDIA L40S (48 GB VRAM)
 
-GPU 0:  Host-level vLLM (Qwen2.5-14B-Instruct-AWQ on :8100)
+GPU 0:  Host-level Gemma server on :8100
         + remote ML container (faster-whisper large-v3 on :5001)
         + no dedicated GPU left for compose-managed vLLM duplication
 ```
 
-> **Current live deployment note (2026-04-14):** the remote server currently has a single L40S, not two. The stable production-like layout is:
-> - host-level `vLLM` on `127.0.0.1:8100`
+> **Current live deployment note (2026-04-15):** the remote server currently has a single L40S, not two. The stable production-like layout is:
+> - host-level Gemma OpenAI-compatible server on `127.0.0.1:8100`
 > - Docker `backend`, `ml`, `postgres`, `valkey`, `minio`
 > - Docker backend reaches host `vLLM` via `http://host.docker.internal:8100`
 > - compose-managed `vllm` should stay disabled on this host to avoid GPU memory contention
 >
-> `PHASE_ROADMAP.md` still references future multi-GPU expansion. Do not assume the current remote box has 2 GPUs.
+> The *actual live remote rebuild path* currently uses `/data/lipi/docker-compose.lipi.yml`. Do not assume `docker-compose.yml` is the live runtime definition on that host.
 
 ---
 
@@ -132,8 +153,8 @@ GPU 0:  Host-level vLLM (Qwen2.5-14B-Instruct-AWQ on :8100)
 | LLM inference | Gemma OpenAI-compatible shim on remote `:8100` | backend still talks to it like an OpenAI/vLLM endpoint |
 | LLM model | Gemma 4 | current live model on the single-L40S host |
 | STT | faster-whisper large-v3 | VAD built-in, no hold-to-talk |
-| TTS | Piper Nepali | current live production voice path |
-| Database | PostgreSQL 16 + pgvector | speaker embeddings as vector(512) |
+| TTS | Piper | Nepali baseline live now; split language routing in progress |
+| Database | PostgreSQL 16 + pgvector | speaker embeddings stored asynchronously as vector(512) |
 | Cache | **Valkey** (BSD-3) | **NEVER** `from redis import …` |
 | Object storage | MinIO | S3-compat, self-hosted |
 | Reverse proxy | **Caddy** | auto HTTPS, not nginx |
@@ -242,7 +263,7 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
 [Browser]
   │  audio (WebM/WAV binary frame)
   ▼
-[Caddy :443]  /ws/session/{id}?token=<jwt>
+[frontend / same-origin proxy]  /ws/session/{id}?token=<jwt>
   │
   ▼
 [backend:8000]  routes/sessions.py
@@ -253,39 +274,68 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
   │     └─ POST ml:5001/stt  → {text, language, confidence, duration_ms}
   │           fallback: Groq Whisper API
   │
-  ├─ 2. Register switch detection (e.g. "तिमी भनेर बोल")
+  ├─ 2. hearing_svc.analyze_hearing()             HEARING ENGINE
+  │     └─ quality gate, language mode, learning_allowed
+  │
+  ├─ 3. turn_interpreter.interpret_turn()         TURN INTERPRETER
+  │     └─ intent, correction, topic, taught terms, style hints
+  │
+  ├─ 4. input_understanding.analyze_input()       INPUT UNDERSTANDING
+  │     └─ structured language / teaching / tone / correction / dialect / prosody signals
+  │
+  ├─ 5. memory_service + teacher_modeling         INTELLIGENCE STATE
+  │     ├─ load structured session memory
+  │     ├─ build teacher model
+  │     └─ load correction summary
+  │
+  ├─ 6. behavior_policy.choose_behavior_policy()  BEHAVIOR POLICY
+  │
+  ├─ 7. Register switch detection (e.g. "तिमी भनेर बोल")
   │     → rebuild system prompt if register changed
   │
-  ├─ 3. Topic memory + turn guidance
+  ├─ 8. Topic memory + curriculum/diversity planning
   │     ├─ build per-turn language/topic guidance
   │     └─ inject active language, recent topics, taught words
   │
-  ├─ 4. llm_svc.generate()
+  ├─ 9. personality.build_response_plan()         PERSONALITY ENGINE
+  │
+  ├─ 10. response_orchestrator.build_response_package()
+  │
+  ├─ 11. llm_svc.generate()
   │     └─ POST :8100/v1/chat/completions (Gemma OpenAI-compatible shim)
   │           fallback: Groq llama-3.3-70b
   │     → send JSON {"type":"token","text":"..."} frame to client
   │
-  ├─ 5. Persist both turns to DB                  STORE
+  ├─ 12. response_cleanup.finalize_reply()        DELIVERY FILTER
+  │
+  ├─ 13. post_generation_guard.guard_response()   SAFETY / QUALITY FILTER
+  │
+  ├─ 14. Persist both turns to DB                 STORE
   │     └─ message_store.persist_teacher_turn()
   │     └─ message_store.persist_lipi_turn()
-  │     └─ Detect correction → log points_transaction
+  │     └─ correction_graph.record_correction_event()
+  │     └─ teacher turn gets raw / derived / high-value signal JSONB envelopes
   │
-  ├─ 6. topic_memory.update_session_memory()
+  ├─ 15. memory_service.update_session_memory()
+  │     └─ teacher_modeling.apply_teacher_turn_outcome()
   │
-  ├─ 7. learning_svc.enqueue_turn()
+  ├─ 16. topic_memory.update_session_memory()
+  │
+  ├─ 17. learning_svc.enqueue_turn()
   │     ├─ PUSH: save extraction job to Valkey pending queue
   │     ├─ WORKER: backend lifespan task moves job → processing queue
   │     ├─ PROCESS: LLM extracts vocabulary JSON from teacher utterance
   │     ├─ EXTRACT: parse {word, language, definition_en}
-  │     └─ STORE: upsert vocabulary_entries + vocabulary_teachers
+  │     └─ STORE: upsert vocabulary_entries + vocabulary_teachers + usage_rules
   │               log word_learned (5pts) + pioneer_word (25pts) if first ever
   │        ← durable + retryable, never blocks the WS response
   │
-  ├─ 8. tts_svc.synthesize(lipi_text)
+  ├─ 18. tts_svc.synthesize(lipi_text)
   │     └─ POST ml:5001/tts  → WAV bytes
-  │           fallback: 300ms silence (never stall the WS)
+  │           language-aware routing: English and Nepali can use different voice ids
+  │           fallback: empty audio / silence path (never stall the WS)
   │
-  └─ 9. Send {"type":"tts_start"} → WAV binary → {"type":"tts_end"}
+  └─ 19. Send {"type":"tts_start"} → WAV binary → {"type":"tts_end"}
 
 [Browser]
   ├─ Queues WAV frames → Web Audio API playback
@@ -471,6 +521,11 @@ For each word:
 - `vocabulary_entries` has `UNIQUE(word, language)` — safe to upsert concurrently
 - Pioneer status is set at insert time and never changes
 - Failed jobs retry up to the configured max, then move to a dead-letter queue for inspection
+- Each teacher message now stores:
+  - raw audio/transcript envelope
+  - derived dialect/style/nuance envelope
+  - high-value correction/teaching envelope
+- `teacher_signals` records longitudinal language/style/dialect observations per teacher turn
 
 ---
 
@@ -494,6 +549,10 @@ docker compose exec postgres psql -U lipi -d lipi
 | `badges` | Badge definitions (9 types, seeded) |
 | `teacher_badges` | Many-to-many: which teacher earned which badge |
 | `messages` | Per-turn message log |
+| `teacher_signals` | Per-turn structured teacher-signal trail (dialect, register, tone, speech rate, etc.) |
+| `correction_events` | Queryable correction graph |
+| `session_memory_snapshots` | Durable structured session memory |
+| `knowledge_confidence_history` | Confidence evolution for learned knowledge |
 | `vocabulary_entries` | Words LIPI has learned, with trigram index |
 | `speaker_embeddings` | `vector(512)` with HNSW index for dialect clustering |
 
@@ -554,18 +613,16 @@ Every user-facing string has Nepali (primary, larger, top) and English (secondar
 | `/tts` | POST | `{"text":"...", "language":"ne"}` → WAV bytes |
 | `/models/info` | GET | Model names and devices |
 
-**STT**: faster-whisper large-v3 with VAD filter. Auto-detects language (Nepali or English, per utterance).
-**TTS**: OmniVoice. Returns float32 mono WAV at 24kHz.
+**STT**: faster-whisper large-v3 with VAD filter. Auto-detects language per utterance, but Newari and mixed turns are still a real quality problem.
+**TTS**: Piper. Current target architecture is split routing:
+- Nepali / Newari-leaning output → `ne_NP-google-medium`
+- English output → separate English Piper voice
 
 **Current remote behavior (1-GPU host):**
 - `stt_loaded=true` and usable
-- `tts_loaded=false` on the remote server at the moment
-- backend TTS path still works because `backend/services/tts.py` falls back to silence when `/tts` is unavailable
-
-**OmniVoice integration notes:**
-- `OMNIVOICE_MODE=auto` gives a model-chosen voice without a reference clip
-- `OMNIVOICE_MODE=clone` requires both `OMNIVOICE_REF_AUDIO` and `OMNIVOICE_REF_TEXT`
-- first rollout should validate plain synthesis first, then switch to clone mode once we have a canonical LIPI reference voice
+- `tts_loaded=true`
+- live baseline voice is Nepali Piper
+- split English/Nepali routing is coded locally and needs final remote deployment confirmation
 
 ### Backend (`backend:8000`)
 
@@ -585,8 +642,8 @@ Every user-facing string has Nepali (primary, larger, top) and English (secondar
 OpenAI-compatible. The backend's `llm.py` calls `/v1/chat/completions` with `stream: true`.
 
 **Current remote runtime:**
-- host-level `vLLM` listens on `127.0.0.1:8100`
-- model currently serving: `Qwen/Qwen2.5-14B-Instruct-AWQ`
+- host-level Gemma server listens on `127.0.0.1:8100`
+- model currently serving: `gemma-4-E4B-it`
 - Docker backend uses `VLLM_URL=http://host.docker.internal:8100`
 - compose-managed `vllm:8080` is intentionally not used on the single-L40S host
 
@@ -597,7 +654,7 @@ OpenAI-compatible. The backend's `llm.py` calls `/v1/chat/completions` with `str
 | `41447` | remote host | SSH |
 | `8000` | remote Docker + local tunnel | FastAPI backend for hybrid local frontend testing |
 | `5001` | remote Docker + local tunnel | ML service |
-| `8100` | remote host + local tunnel | host-level vLLM |
+| `8100` | remote host + local tunnel | host-level Gemma OpenAI-compatible server |
 | `9000` | remote Docker + local tunnel | MinIO API |
 | `9001` | remote Docker | MinIO console |
 | `5432` | remote Docker internal only | PostgreSQL |
@@ -667,18 +724,20 @@ Badges are checked after every session close via `_close_session()` in `routes/s
 | Phase 1 — Core Conversation | ✅ Complete | WS handler, prompt_builder, STT/LLM/TTS services, JWT auth, message persistence, learning cycle |
 | Phase 2 — Frontend | ✅ Complete | Auth, onboarding, Orb, teach, home, ranks, settings, nav |
 | Phase 3 — Gamification | ✅ Complete | Points, badges, leaderboard, summary rebuild, ORM models |
-| Roadmap Weeks 7–10 | 🔲 Next | Speaker embeddings, async learning queue, GDPR consent, moderation |
+| Roadmap Weeks 7–10 | 🔲 Next | Speaker embeddings, GDPR consent, moderation, quality tuning |
 | Roadmap Weeks 11–14 | 🔲 Future | VITS training, Whisper LoRA, LLM benchmarking, pipeline/ scripts |
 
 ### What still needs to be done before first real user test
 
-**Critical path (blocking real user testing):**
+**Critical path (blocking a good first real user test):**
 
-1. **STT/TTS/LLM service availability** — The ML service (faster-whisper + mms-tts) and vLLM must be running. For local dev without GPU, set `GROQ_API_KEY` in `.env` to use Groq fallback. Current state: vLLM and ML services require GPU; fallback available but has latency.
+1. **STT quality** — infrastructure is up, but Newari and mixed-language understanding are still not strong enough.
 
-2. **Speaker embedding extraction** — extract `vector(512)` embedding from each audio utterance using multilingual-e5-large and write to `speaker_embeddings`. Required for dialect clustering (roadmap Weeks 7–8). Currently: `speaker_embeddings` table exists but extraction pipeline not implemented.
+2. **Voice quality** — current Piper baseline works, but the product feel is still weak. Split English/Nepali voice routing should be finished and tuned.
 
-3. **Async learning queue** — ✅ Implemented with Valkey-backed pending/processing/dead-letter queues and retry logic in the backend lifespan worker. Remaining gap: add monitoring/alerting for dead-letter growth.
+3. **Speaker embedding extraction** — async worker fetches teacher audio from MinIO, calls ML `/speaker-embed`, and writes `vector(512)` rows into `speaker_embeddings`. Current implementation is `acoustic_signature_v1`: a lightweight deterministic 512-d acoustic signature suitable for capture, storage, and early clustering experiments. It is not yet a learned dialect/speaker model.
+
+4. **Async learning queue** — ✅ Implemented with Valkey-backed pending/processing/dead-letter queues and retry logic in the backend lifespan worker. Remaining gap: add monitoring/alerting for dead-letter growth.
 
 **Quality (before shipping):**
 
@@ -766,9 +825,9 @@ After writing:
 
 The ML container is still loading faster-whisper (large-v3 takes ~90s on first load from disk). Check: `docker compose logs ml --tail=20`. Wait for `"STT loaded"` and `"TTS loaded"`.
 
-### vLLM returns 503
+### Gemma server / model endpoint returns 503 or 404
 
-Either still loading (Qwen3-32B takes ~5 min cold) or ran OOM. Check: `docker compose logs vllm | grep -E "error|Error|OOM"`. If OOM: lower `--gpu-memory-utilization 0.85 → 0.75` in `docker-compose.yml`.
+Check whether the host-level Gemma shim on `:8100` is actually up and which model name it is serving. The backend must use the real served model id. If the browser says voice works but LIPI never answers, check the backend logs for model-name mismatch or timeout first.
 
 ### Valkey connection refused
 

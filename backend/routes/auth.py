@@ -7,18 +7,20 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from db.connection import get_db
+from dependencies.auth import get_current_user
+from jwt_utils import create_access_token, create_ws_token, decode_access_token
 from models.user import User
+from rate_limit import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = logging.getLogger("lipi.backend.auth")
@@ -40,28 +42,6 @@ class TokenResponse(BaseModel):
     expires_in: int
     user_id: str
     onboarding_complete: bool
-
-
-# ─── JWT helpers ────────────────────────────────────────────────────────────
-
-def create_access_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": user_id, "exp": expire}
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-
-
-def decode_access_token(token: str) -> str:
-    """Returns user_id or raises HTTPException 401."""
-    try:
-        payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
-        )
-        user_id: str | None = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
-        return user_id
-    except JWTError as exc:
-        raise HTTPException(status_code=401, detail="Invalid token") from exc
 
 
 # ─── User upsert ────────────────────────────────────────────────────────────
@@ -111,10 +91,12 @@ async def _upsert_google_user(
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
 
+@limiter.limit("5/minute")  # 5 auth attempts per minute per IP
 @router.post("/google", response_model=TokenResponse)
 async def google_callback(
     body: GoogleCallbackRequest,
     db: AsyncSession = Depends(get_db),
+    request = None,  # Injected by rate limiter
 ) -> TokenResponse:
     """Exchange Google OAuth code for a LIPI JWT."""
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -168,8 +150,9 @@ async def google_callback(
     )
 
 
+@limiter.limit("3/minute")  # Stricter limit for demo login
 @router.post("/demo", response_model=TokenResponse)
-async def demo_login(db: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def demo_login(db: AsyncSession = Depends(get_db), request = None) -> TokenResponse:
     """
     Dev-only demo login — creates a seeded teacher and returns a JWT.
     Returns 403 in any non-development environment.
@@ -254,10 +237,12 @@ async def demo_login(db: AsyncSession = Depends(get_db)) -> TokenResponse:
     )
 
 
+@limiter.limit("10/minute")  # Token refresh, can be called more frequently
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     old_token: str,
     db: AsyncSession = Depends(get_db),
+    request = None,
 ) -> TokenResponse:
     """Issue a new JWT from a still-valid one (sliding expiry)."""
     user_id = decode_access_token(old_token)
@@ -272,3 +257,18 @@ async def refresh_token(
         user_id=user_id,
         onboarding_complete=user.onboarding_complete,
     )
+
+
+class WSTokenResponse(BaseModel):
+    ws_token: str
+
+
+@limiter.limit("20/minute")  # WebSocket token requests, can be frequent
+@router.post("/ws-token", response_model=WSTokenResponse)
+async def get_ws_token(user_id: str = Depends(get_current_user), request = None) -> WSTokenResponse:
+    """Issue a short-lived token for WebSocket upgrade (5-min expiry).
+
+    The httpOnly cookie transport doesn't support custom headers on WebSocket,
+    so this endpoint issues a token valid only for WS connections.
+    """
+    return WSTokenResponse(ws_token=create_ws_token(user_id))

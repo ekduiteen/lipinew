@@ -25,8 +25,15 @@ async def persist_teacher_turn(
     turn_index: int,
     text: str,
     detected_language: str | None = None,
+    audio_path: str | None = None,
     stt_confidence: float | None = None,
     audio_duration_ms: int | None = None,
+    raw_signals_json: dict | None = None,
+    derived_signals_json: dict | None = None,
+    high_value_signals_json: dict | None = None,
+    style_signals_json: dict | None = None,
+    prosody_signals_json: dict | None = None,
+    nuance_signals_json: dict | None = None,
 ) -> Message:
     msg = Message(
         id=str(uuid.uuid4()),
@@ -36,8 +43,15 @@ async def persist_teacher_turn(
         role="teacher",
         text=text,
         detected_language=detected_language,
+        audio_path=audio_path,
         stt_confidence=stt_confidence,
         audio_duration_ms=audio_duration_ms,
+        raw_signals_json=raw_signals_json or {},
+        derived_signals_json=derived_signals_json or {},
+        high_value_signals_json=high_value_signals_json or {},
+        style_signals_json=style_signals_json or {},
+        prosody_signals_json=prosody_signals_json or {},
+        nuance_signals_json=nuance_signals_json or {},
     )
     db.add(msg)
     await db.flush()
@@ -53,6 +67,8 @@ async def persist_lipi_turn(
     text: str,
     llm_model: str | None = None,
     llm_latency_ms: int | None = None,
+    derived_signals_json: dict | None = None,
+    style_signals_json: dict | None = None,
 ) -> Message:
     msg = Message(
         id=str(uuid.uuid4()),
@@ -63,6 +79,8 @@ async def persist_lipi_turn(
         text=text,
         llm_model=llm_model,
         llm_latency_ms=llm_latency_ms,
+        derived_signals_json=derived_signals_json or {},
+        style_signals_json=style_signals_json or {},
     )
     db.add(msg)
     await db.flush()
