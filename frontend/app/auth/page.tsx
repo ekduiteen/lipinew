@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { exchangeGoogleCode, demoLogin, type AuthResponse } from "@/lib/api";
 import styles from "./auth.module.css";
@@ -20,7 +20,7 @@ function googleAuthUrl() {
   return `${base}?${params}`;
 }
 
-export default function AuthPage() {
+function AuthPageInner() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -89,6 +89,14 @@ export default function AuthPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthPageInner />
+    </Suspense>
   );
 }
 

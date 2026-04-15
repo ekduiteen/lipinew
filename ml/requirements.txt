@@ -7,14 +7,17 @@ python-multipart==0.0.12
 faster-whisper==1.0.3
 
 # TTS
-transformers==4.45.2
 torch==2.4.1
 torchaudio==2.4.1
 scipy==1.14.1
 numpy==1.26.4
+piper-tts==1.4.2
 
 # Audio
 soundfile==0.12.1
 
 # Logging
 structlog==24.4.0
+
+# Runtime dependency pulled by faster-whisper utils
+requests==2.32.3

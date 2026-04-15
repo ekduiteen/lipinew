@@ -1,7 +1,7 @@
 # LIPI — Developer Onboarding Guide
 
 > **Living document. Update rule: every PR that adds a service, endpoint, pattern, or architectural decision MUST include a corresponding update to this file. No exceptions. If you shipped it and didn't document it here, it didn't happen.**
-> Last synced: 2026-04-15 — Added durable Valkey learning queue, switched TTS docs to OmniVoice, documented single-L40S remote layout, and clarified the current frontend testing caveat around `localhost:8000`.
+> Last synced: 2026-04-15 — Updated handover for Gemma + Piper, added dashboard and topic-memory notes, documented multilingual turn guidance, and clarified the current remote Whisper deployment state.
 
 ---
 
@@ -36,7 +36,7 @@ lipi/
 ├── ml/                         ← GPU microservice (STT + TTS)
 │   ├── main.py                 ← FastAPI app, /health /stt /tts /models/info
 │   ├── stt.py                  ← STTService (faster-whisper large-v3)
-│   ├── tts.py                  ← TTSService (OmniVoice)
+│   ├── tts.py                  ← TTSService (Piper Nepali)
 │   ├── requirements.txt
 │   └── Dockerfile
 │
@@ -67,7 +67,8 @@ lipi/
 │       ├── points.py           ← calculate_points, log_transaction, rebuild_summary
 │       ├── badges.py           ← check_and_award (idempotent)
 │       ├── message_store.py    ← persist_teacher_turn, persist_lipi_turn (permanent DB)
-│       └── learning.py         ← OBSERVE→EXTRACT→STORE vocabulary cycle (background task)
+│       ├── learning.py         ← OBSERVE→EXTRACT→STORE vocabulary cycle (background task)
+│       └── topic_memory.py     ← lightweight session memory for active language/topics/taught words
 │
 ├── frontend/                   ← Next.js 14 PWA (App Router)
 │   ├── app/
@@ -81,7 +82,7 @@ lipi/
 │   │       ├── home/page.tsx   ← Stats + CTA + mini-leaderboard
 │   │       ├── teach/page.tsx  ← Orb + VAD + WebSocket conversation
 │   │       ├── ranks/page.tsx  ← Weekly/monthly/all-time leaderboard
-│   │       └── settings/page.tsx ← Theme picker with live Orb previews
+│   │       └── settings/page.tsx ← Theme picker + dashboard link
 │   ├── components/
 │   │   ├── orb/Orb.tsx         ← 4-state animated orb (idle/listening/thinking/speaking)
 │   │   ├── theme/ThemeProvider.tsx ← data-theme on <html>, localStorage persist
@@ -128,10 +129,10 @@ GPU 0:  Host-level vLLM (Qwen2.5-14B-Instruct-AWQ on :8100)
 |-------|------|----------------|
 | Frontend | Next.js 14, TypeScript | App Router only, Server Components default |
 | Backend | FastAPI, Python 3.11 | async everywhere, httpx not requests |
-| LLM inference | vLLM (OpenAI-compat) | Groq fires only on local failure |
-| LLM model | Qwen3-32B | fits 2× L40S at float16 |
+| LLM inference | Gemma OpenAI-compatible shim on remote `:8100` | backend still talks to it like an OpenAI/vLLM endpoint |
+| LLM model | Gemma 4 | current live model on the single-L40S host |
 | STT | faster-whisper large-v3 | VAD built-in, no hold-to-talk |
-| TTS | OmniVoice | Zero-shot multilingual TTS with optional voice cloning |
+| TTS | Piper Nepali | current live production voice path |
 | Database | PostgreSQL 16 + pgvector | speaker embeddings as vector(512) |
 | Cache | **Valkey** (BSD-3) | **NEVER** `from redis import …` |
 | Object storage | MinIO | S3-compat, self-hosted |
@@ -167,11 +168,8 @@ docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
 # Start infra (fast, no GPU)
 docker compose up -d postgres valkey minio minio-init
 
-# Start GPU services (slow cold start: vLLM ~5 min, ml ~2 min)
-docker compose up -d vllm ml
-
 # Start app services
-docker compose up -d backend frontend caddy
+docker compose up -d backend frontend
 ```
 
 ### 5.3 Verify everything is healthy
@@ -183,8 +181,8 @@ curl http://localhost:8000/health
 curl http://localhost:5001/health
 # → {"status":"ok","stt_loaded":true,"tts_loaded":true,...}
 
-curl http://localhost:8080/v1/models
-# → {"data":[{"id":"lipi",...}]}
+curl http://localhost:8100/v1/models
+# → {"data":[{"id":"gemma-4-E4B-it",...}]}
 ```
 
 > **Current caveat (2026-04-15):** in the hybrid local-dev setup, `frontend/.env.local` points the browser app at `http://localhost:8000`, but the local Docker backend is not published to the host by default. If you run `npm run dev` locally without either:
@@ -195,7 +193,7 @@ curl http://localhost:8080/v1/models
 
 ### 5.4 CPU-only mode (no GPUs)
 
-Comment out `vllm` and `ml` services in `docker-compose.yml`. Set `GROQ_API_KEY` in `.env`. All STT/LLM/TTS calls will route to Groq. Useful for frontend development.
+Comment out remote model dependencies or point the backend at fallback services. Set `GROQ_API_KEY` in `.env` only if you intentionally want API fallback. Useful for frontend-only development, but not representative of the current single-L40S production-like setup.
 
 ### 5.5 Hot reload (outside Docker)
 
@@ -208,9 +206,9 @@ uvicorn main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 # Runs on :3000, proxied through Caddy at :443
 
-# ML service (GPU only)
+# ML service (GPU only, remote-oriented in current setup)
 cd ml && pip install -r requirements.txt
-STT_DEVICE=cuda:0 TTS_DEVICE=cuda:1 uvicorn main:app --port 5001
+STT_DEVICE=cuda:0 TTS_DEVICE=cpu uvicorn main:app --port 5001
 ```
 
 Infra services (`postgres`, `valkey`, `minio`) must still be running in Docker.
@@ -258,17 +256,23 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
   ├─ 2. Register switch detection (e.g. "तिमी भनेर बोल")
   │     → rebuild system prompt if register changed
   │
-  ├─ 3. llm_svc.generate(messages, stream=True)
-  │     └─ POST vllm:8080/v1/chat/completions (SSE stream)
-  │           fallback: Groq llama-3.3-70b
-  │     → stream JSON {"type":"token","text":"..."} frames to client
+  ├─ 3. Topic memory + turn guidance
+  │     ├─ build per-turn language/topic guidance
+  │     └─ inject active language, recent topics, taught words
   │
-  ├─ 4. Persist both turns to DB                  STORE
+  ├─ 4. llm_svc.generate()
+  │     └─ POST :8100/v1/chat/completions (Gemma OpenAI-compatible shim)
+  │           fallback: Groq llama-3.3-70b
+  │     → send JSON {"type":"token","text":"..."} frame to client
+  │
+  ├─ 5. Persist both turns to DB                  STORE
   │     └─ message_store.persist_teacher_turn()
   │     └─ message_store.persist_lipi_turn()
   │     └─ Detect correction → log points_transaction
   │
-  ├─ 5. learning_svc.enqueue_turn()
+  ├─ 6. topic_memory.update_session_memory()
+  │
+  ├─ 7. learning_svc.enqueue_turn()
   │     ├─ PUSH: save extraction job to Valkey pending queue
   │     ├─ WORKER: backend lifespan task moves job → processing queue
   │     ├─ PROCESS: LLM extracts vocabulary JSON from teacher utterance
@@ -277,11 +281,11 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
   │               log word_learned (5pts) + pioneer_word (25pts) if first ever
   │        ← durable + retryable, never blocks the WS response
   │
-  ├─ 6. tts_svc.synthesize(lipi_text)
+  ├─ 8. tts_svc.synthesize(lipi_text)
   │     └─ POST ml:5001/tts  → WAV bytes
   │           fallback: 300ms silence (never stall the WS)
   │
-  └─ 7. Send {"type":"tts_start"} → WAV binary → {"type":"tts_end"}
+  └─ 9. Send {"type":"tts_start"} → WAV binary → {"type":"tts_end"}
 
 [Browser]
   ├─ Queues WAV frames → Web Audio API playback

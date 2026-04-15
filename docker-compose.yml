@@ -5,50 +5,53 @@
 
 services:
 
-  # ─── Reverse proxy: Caddy with auto HTTPS ─────────────────────────────────
-  caddy:
-    image: caddy:2.8-alpine
-    container_name: lipi-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN}
-      CADDY_EMAIL: ${CADDY_EMAIL}
-    networks:
-      - lipi-net
-    depends_on:
-      - frontend
-      - backend
-
-  # ─── Frontend: Next.js PWA ────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: lipi-frontend
     restart: unless-stopped
+    ports:
+      - "3000:3000"
     environment:
+      BACKEND_URL: http://backend:8000
+      NEXT_PUBLIC_BACKEND_URL: http://127.0.0.1:8000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+      NEXT_PUBLIC_WS_URL: ws://127.0.0.1:8000
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
     networks:
       - lipi-net
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ─── NOTE: Caddy is for production only ───────────────────────────────────
+  # For local development, frontend runs on localhost:3000 via npm run dev
+  #
+  # caddy:
+  #   image: caddy:2.8-alpine
+  #   container_name: lipi-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #     - "443:443/udp"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   environment:
+  #     CADDY_DOMAIN: ${CADDY_DOMAIN}
+  #     CADDY_EMAIL: ${CADDY_EMAIL}
+  #   networks:
+  #     - lipi-net
+  #   depends_on:
+  #     - backend
 
   # ─── Backend: FastAPI ─────────────────────────────────────────────────────
   backend:
@@ -57,6 +60,8 @@ services:
       dockerfile: Dockerfile
     container_name: lipi-backend
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
@@ -94,67 +99,69 @@ services:
       timeout: 10s
       retries: 3
 
-  # ─── ML Service: faster-whisper (STT) + mms-tts-npi (TTS) ─────────────────
-  ml:
-    build:
-      context: ./ml
-      dockerfile: Dockerfile
-    container_name: lipi-ml
-    restart: unless-stopped
-    environment:
-      STT_DEVICE: ${STT_DEVICE}
-      TTS_DEVICE: ${TTS_DEVICE}
-      LOG_LEVEL: ${LOG_LEVEL}
-    volumes:
-      - ml_models:/app/models
-    networks:
-      - lipi-net
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["0", "1"]
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # ─── NOTE: ML Service (STT + TTS) runs on REMOTE server only ───────────────
+  # Connect via SSH tunnel: ssh -L 5001:localhost:5001 ...
+  # Set ML_SERVICE_URL=http://localhost:5001 in .env
+  #
+  # ml:
+  #   build:
+  #     context: ./ml
+  #     dockerfile: Dockerfile
+  #   container_name: lipi-ml
+  #   restart: unless-stopped
+  #   environment:
+  #     STT_DEVICE: cuda:0
+  #     TTS_DEVICE: cuda:1
+  #     LOG_LEVEL: ${LOG_LEVEL}
+  #   volumes:
+  #     - ml_models:/app/models
+  #   networks:
+  #     - lipi-net
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             device_ids: ["0", "1"]
+  #             capabilities: [gpu]
 
-  # ─── vLLM: Qwen2.5-14B-Instruct-AWQ (fits single L40S with AWQ quantization) ─────
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: lipi-vllm
-    restart: unless-stopped
-    ipc: host
-    environment:
-      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
-    volumes:
-      - vllm_models:/root/.cache/huggingface
-    command: >
-      --model Qwen/Qwen2.5-14B-Instruct-AWQ
-      --dtype auto
-      --gpu-memory-utilization 0.85
-      --port 8080
-      --enable-prefix-caching
-      --max-model-len 8192
-      --served-model-name lipi
-    networks:
-      - lipi-net
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["0"]
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/models"]
-      interval: 60s
-      timeout: 10s
-      retries: 5
-      start_period: 300s
+  # ─── NOTE: vLLM (LLM inference) runs on REMOTE server only ─────────────────
+  # Remote command:
+  #   python -m vllm.entrypoints.openai.api_server \
+  #     --model Qwen/Qwen2.5-14B-Instruct-AWQ \
+  #     --dtype auto --gpu-memory-utilization 0.85 \
+  #     --port 8100 --enable-prefix-caching --max-model-len 8192 \
+  #     --served-model-name lipi
+  #
+  # Connect via SSH tunnel: ssh -L 8100:localhost:8100 ...
+  # Set VLLM_URL=http://localhost:8100 in .env
+  #
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   container_name: lipi-vllm
+  #   restart: unless-stopped
+  #   ipc: host
+  #   environment:
+  #     HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+  #   volumes:
+  #     - vllm_models:/root/.cache/huggingface
+  #   command: >
+  #     --model Qwen/Qwen2.5-14B-Instruct-AWQ
+  #     --dtype auto
+  #     --gpu-memory-utilization 0.85
+  #     --port 8100
+  #     --enable-prefix-caching
+  #     --max-model-len 8192
+  #     --served-model-name lipi
+  #   networks:
+  #     - lipi-net
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             device_ids: ["0"]
+  #             capabilities: [gpu]
 
   # ─── PostgreSQL 16 with pgvector ──────────────────────────────────────────
   postgres:
@@ -268,9 +275,7 @@ volumes:
   postgres_data:
   valkey_data:
   minio_data:
-  vllm_models:
-  ml_models:
-  caddy_data:
-  caddy_config:
+  # vllm_models and ml_models run on REMOTE server only
+  # caddy_data and caddy_config used only in production
   prometheus_data:
   grafana_data:

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useTheme, type Theme } from "@/components/theme/ThemeProvider";
 import Orb from "@/components/orb/Orb";
 import styles from "./settings.module.css";
@@ -41,6 +42,16 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitleNe}>सिस्टम ड्यासबोर्ड</h2>
+        <p className={styles.sectionTitleEn}>System dashboard</p>
+
+        <Link href="/settings/dashboard" className={styles.dashboardLink}>
+          <span className={styles.dashboardNe}>स्थिति, डेटा, र प्रतिवेदन हेर्नुहोस्</span>
+          <span className={styles.dashboardEn}>View status, data, and reports</span>
+        </Link>
       </section>
     </div>
   );

@@ -29,6 +29,23 @@ logger = logging.getLogger("lipi.backend.learning")
 _QUEUE_KEY = settings.learning_queue_key
 _PROCESSING_KEY = settings.learning_processing_key
 _DEAD_LETTER_KEY = settings.learning_dead_letter_key
+_CONFUSED_REPLY_MARKERS = (
+    "मलाई थाहा भएन",
+    "के तिमीले फेरि भन्न सक्छौ",
+    "कृपया फेरि भन्नुहोस्",
+    "मैले गलत बुझें",
+    "के मैले सही बुझें",
+    "मलाई लाग्छ",
+)
+_HINDI_REPLY_MARKERS = (
+    "कैसे",
+    "क्या",
+    "है",
+    "हूँ",
+    "हैं",
+    "नहीं",
+    "लेकिन",
+)
 
 
 # ─── Extraction prompt ───────────────────────────────────────────────────────
@@ -64,6 +81,15 @@ async def enqueue_turn(
     stt_result: dict,
 ) -> None:
     """Persist a learning job to Valkey so extraction is durable and retryable."""
+    should_enqueue, reason = _should_learn_from_turn(
+        teacher_text=teacher_text,
+        lipi_response=lipi_response,
+        stt_result=stt_result,
+    )
+    if not should_enqueue:
+        logger.info("Skipping learning enqueue: %s", reason)
+        return
+
     job = {
         "job_id": str(uuid.uuid4()),
         "session_id": session_id,
@@ -75,6 +101,42 @@ async def enqueue_turn(
         "enqueued_at": datetime.now(timezone.utc).isoformat(),
     }
     await valkey.lpush(_QUEUE_KEY, json.dumps(job))
+
+
+def _should_learn_from_turn(
+    *,
+    teacher_text: str,
+    lipi_response: str,
+    stt_result: dict,
+) -> tuple[bool, str]:
+    teacher_text = teacher_text.strip()
+    lipi_response = lipi_response.strip()
+    detected_language = str(stt_result.get("language", "") or "").strip().lower()
+    stt_confidence = float(stt_result.get("confidence", 0.0) or 0.0)
+
+    if len(teacher_text) < 3:
+        return False, "teacher_text_too_short"
+
+    if detected_language != settings.learning_required_teacher_language:
+        return False, f"teacher_language={detected_language or 'unknown'}"
+
+    if stt_confidence < settings.learning_min_stt_confidence:
+        return False, f"low_stt_confidence={stt_confidence:.2f}"
+
+    if not lipi_response:
+        return False, "empty_lipi_response"
+
+    if len(lipi_response) > settings.learning_max_reply_chars:
+        return False, f"reply_too_long={len(lipi_response)}"
+
+    lowered_reply = lipi_response.lower()
+    if any(marker in lipi_response for marker in _CONFUSED_REPLY_MARKERS):
+        return False, "assistant_confused"
+
+    if any(marker in lowered_reply for marker in _HINDI_REPLY_MARKERS):
+        return False, "assistant_hindi_mixed"
+
+    return True, "ok"
 
 
 async def requeue_inflight_jobs() -> int:
@@ -165,7 +227,7 @@ async def _run(
 
     # ── OBSERVE ───────────────────────────────────────────────────────────────
     stt_confidence: float = stt_result.get("confidence", 0.0)
-    audio_quality_ok: bool = stt_confidence >= 0.6
+    audio_quality_ok: bool = stt_confidence >= settings.learning_min_stt_confidence
 
     if not audio_quality_ok:
         logger.debug("Low STT confidence (%.2f) — skipping extraction", stt_confidence)

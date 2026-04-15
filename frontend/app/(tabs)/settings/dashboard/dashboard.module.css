@@ -1,0 +1,175 @@
+.root {
+  padding: 1.5rem 1.25rem 1rem;
+  max-width: 780px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.backLink {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--font-latin);
+  font-size: 0.85rem;
+}
+
+.titleNe {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.titleEn {
+  margin-top: -1rem;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+  font-family: var(--font-latin);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sectionTitle {
+  color: var(--fg);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.statusGrid,
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.card,
+.metricCard,
+.sampleCard,
+.errorBox,
+.loading {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.card {
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cardLabel {
+  color: var(--fg);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.badge {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-family: var(--font-latin);
+}
+
+.ok {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-elev));
+  color: var(--accent);
+}
+
+.bad {
+  background: color-mix(in srgb, #c2410c 15%, var(--bg-elev));
+  color: #c2410c;
+}
+
+.detail {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-family: var(--font-latin);
+}
+
+.metricCard {
+  padding: 0.95rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.metricValue {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.metricLabel {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-family: var(--font-latin);
+}
+
+.languageRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.languageChip {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
+  color: var(--fg);
+  font-size: 0.72rem;
+  font-family: var(--font-latin);
+}
+
+.sampleList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.sampleCard {
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sampleMeta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-family: var(--font-latin);
+}
+
+.teacherText,
+.lipiText {
+  margin: 0;
+  color: var(--fg);
+  line-height: 1.45;
+}
+
+.lipiText {
+  color: var(--fg-muted);
+}
+
+.errorBox,
+.loading {
+  padding: 1rem;
+  color: var(--fg);
+}

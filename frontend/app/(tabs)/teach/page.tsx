@@ -17,6 +17,13 @@ export default function TeachPage() {
   const [amplitude, setAmplitude] = useState(0);
   const [correction, setCorrection] = useState<string | null>(null);
   const [wsReady, setWsReady] = useState(false);
+  const [micReady, setMicReady] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState("जोडिँदैछ… · Connecting…");
+  const [sessionReady, setSessionReady] = useState(false);
+  const [teacherSubtitle, setTeacherSubtitle] = useState("");
+  const [lipiSubtitle, setLipiSubtitle] = useState("");
+  const [subtitleMeta, setSubtitleMeta] = useState<string | null>(null);
 
   const wsRef = useRef<LipiWebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -27,10 +34,18 @@ export default function TeachPage() {
   const correctionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const playingRef = useRef(false);
+  const ttsActiveRef = useRef(false);
+  const bootstrappedRef = useRef(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const socketOpenedRef = useRef(false);
 
   // ── Bootstrap session + WebSocket ─────────────────────────────────────────
   useEffect(() => {
-    let ws: LipiWebSocket;
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+
+    let ws: LipiWebSocket | undefined;
+    let cancelled = false;
 
     (async () => {
       const userId = localStorage.getItem("lipi.user_id") ?? "guest";
@@ -40,61 +55,106 @@ export default function TeachPage() {
         const session = await createSession();
         console.log("Session created:", session);
         sessionId = session.session_id;
+        setSessionReady(true);
+        setStatusText("सत्र तयार छ · Session ready");
       } catch (error) {
         console.error("Failed to create session:", error);
         alert("Failed to create session. Please reload the page.");
+        setStatusText("सत्र बनाउन सकिएन · Failed to create session");
         return;
       }
 
       console.log("Connecting WebSocket for session:", sessionId);
+      setStatusText("लाइभ च्यानल जोड्दैछ… · Connecting live channel…");
+      const handleSocketOpen = async () => {
+        if (cancelled || socketOpenedRef.current) return;
+        socketOpenedRef.current = true;
+        console.log("WebSocket connected!");
+        setWsReady(true);
+        setOrbState("idle");
+        setStatusText("माइक सुरु गर्न तयार · Ready to start voice");
+      };
+
       ws = new LipiWebSocket(sessionId, userId, {
-        onToken: () => {},  // tokens arrive but we don't show a transcript
+        onOpen: handleSocketOpen,
+        onTranscript: (text, language, confidence) => {
+          setTeacherSubtitle(text);
+          const confText =
+            typeof confidence === "number" ? ` · ${(confidence * 100).toFixed(0)}%` : "";
+          setSubtitleMeta(`${language ?? "unknown"}${confText}`);
+        },
+        onToken: (text) => {
+          setLipiSubtitle(text);
+        },
         onTTSStart: (_text, _turn) => {
+          ttsActiveRef.current = true;
+          chunksRef.current = [];
+          speakingRef.current = false;
           setOrbState("speaking");
+          setStatusText("उत्तर दिँदैछ · Speaking");
         },
         onAudio: (wav) => {
           audioQueueRef.current.push(wav);
           if (!playingRef.current) drainQueue();
         },
         onTTSEnd: () => {
-          // state reverts to idle after queue drains (handled in drainQueue)
+          ttsActiveRef.current = false;
+          if (micReady) setStatusText("सुनिरहेको छ · Listening");
         },
-        onEmptyAudio: () => setOrbState("idle"),
+        onEmptyAudio: () => {
+          setOrbState("idle");
+          setStatusText("अडियो आएन · No audio returned");
+        },
         onError: (err) => {
           console.error("WebSocket error:", err);
           setOrbState("idle");
+          setStatusText("लाइभ च्यानलमा समस्या आयो · Live channel error");
         },
         onClose: () => {
           console.log("WebSocket closed");
           setWsReady(false);
+          if (!cancelled) setOrbState("idle");
+          if (!cancelled) setStatusText("लाइभ च्यानल बन्द भयो · Live channel closed");
         },
       });
 
       wsRef.current = ws;
-
-      // Wait for WebSocket to open before marking as ready
-      const checkConnection = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          clearInterval(checkConnection);
-          console.log("WebSocket connected!");
-          setWsReady(true);
-          startMic(ws);
+      const openPoll = setInterval(() => {
+        if (cancelled) {
+          clearInterval(openPoll);
+          return;
         }
-      }, 100);
-
-      // Timeout after 5 seconds
+        if (ws?.readyState === WebSocket.OPEN) {
+          clearInterval(openPoll);
+          void handleSocketOpen();
+        }
+        if (ws?.readyState === WebSocket.CLOSED) {
+          clearInterval(openPoll);
+        }
+      }, 250);
       setTimeout(() => {
-        clearInterval(checkConnection);
-        if (ws.readyState !== WebSocket.OPEN) {
+        if (!cancelled && ws?.readyState !== WebSocket.OPEN) {
           console.error("WebSocket failed to connect after 5 seconds");
-          alert("Failed to connect. Please reload the page.");
+          setStatusText("लाइभ च्यानल ढिलो छ · Live channel still connecting");
         }
       }, 5000);
     })();
 
     return () => {
+      cancelled = true;
+      socketOpenedRef.current = false;
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current);
+      processorRef.current?.disconnect();
+      processorRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       ws?.close();
       audioCtxRef.current?.close();
+      audioCtxRef.current = null;
+      setMicReady(false);
+      setSessionReady(false);
+      ttsActiveRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -121,6 +181,7 @@ export default function TeachPage() {
     }
     playingRef.current = false;
     setOrbState("idle");
+    if (micReady) setStatusText("सुनिरहेको छ · Listening");
   }
 
   // ── Microphone + VAD ──────────────────────────────────────────────────────
@@ -128,6 +189,7 @@ export default function TeachPage() {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true },
     });
+    streamRef.current = stream;
 
     const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     audioCtxRef.current = ctx;
@@ -137,6 +199,16 @@ export default function TeachPage() {
     processorRef.current = processor;
 
     processor.onaudioprocess = (e) => {
+      if (ttsActiveRef.current || playingRef.current) {
+        chunksRef.current = [];
+        speakingRef.current = false;
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+        return;
+      }
+
       const data = e.inputBuffer.getChannelData(0);
       const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
 
@@ -147,6 +219,7 @@ export default function TeachPage() {
         if (!speakingRef.current) {
           speakingRef.current = true;
           setOrbState("listening");
+          setStatusText("सुनिरहेको छ · Listening");
           chunksRef.current = [];
         }
         if (silenceTimerRef.current) {
@@ -160,6 +233,7 @@ export default function TeachPage() {
           speakingRef.current = false;
           silenceTimerRef.current = null;
           setOrbState("thinking");
+          setStatusText("सोच्दैछ · Thinking");
           flushAudio(ws);
         }, SILENCE_DURATION_MS);
       }
@@ -167,6 +241,26 @@ export default function TeachPage() {
 
     source.connect(processor);
     processor.connect(ctx.destination);
+    setMicReady(true);
+    setMicError(null);
+    setStatusText("सुनिरहेको छ · Listening");
+  }
+
+  async function handleStartMic() {
+    if (!wsRef.current) return;
+    if (wsRef.current.readyState !== WebSocket.OPEN) {
+      setMicError("Live channel is still connecting. Please try again in a moment.");
+      setStatusText("लाइभ च्यानल अझै जोडिँदैछ · Live channel still connecting");
+      return;
+    }
+    try {
+      await startMic(wsRef.current);
+    } catch (error) {
+      console.error("Microphone startup failed:", error);
+      setMicReady(false);
+      setMicError("Microphone access is required for Teach mode.");
+      setStatusText("माइक अनुमति चाहिन्छ · Microphone permission required");
+    }
   }
 
   function flushAudio(ws: LipiWebSocket) {
@@ -191,8 +285,14 @@ export default function TeachPage() {
     <div className={styles.root}>
       <div className={styles.orbWrap}>
         <Orb state={orbState} amplitude={amplitude} size={220} />
-        {!wsReady && (
-          <p className={styles.connecting}>जोडिँदैछ… · Connecting…</p>
+        <p className={styles.connecting}>{statusText}</p>
+        {sessionReady && !micReady && (
+          <>
+            <button className={styles.startBtn} onClick={handleStartMic}>
+              माइक सुरु गर्नुहोस् · Start Voice
+            </button>
+            {micError && <p className={styles.connecting}>{micError}</p>}
+          </>
         )}
       </div>
 
@@ -202,6 +302,23 @@ export default function TeachPage() {
           <p className={styles.correctionText}>{correction}</p>
         </div>
       )}
+
+      <section className={styles.subtitlePanel}>
+        <div className={styles.subtitleBlock}>
+          <span className={styles.subtitleLabel}>तपाईं · You</span>
+          <p className={styles.subtitleText}>
+            {teacherSubtitle || "तपाईंको बोली यहाँ देखिनेछ · Your speech will appear here"}
+          </p>
+          {subtitleMeta && <span className={styles.subtitleMeta}>{subtitleMeta}</span>}
+        </div>
+
+        <div className={styles.subtitleBlock}>
+          <span className={styles.subtitleLabel}>लिपि · LIPI</span>
+          <p className={styles.subtitleText}>
+            {lipiSubtitle || "लिपिको उत्तर यहाँ देखिनेछ · LIPI reply will appear here"}
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

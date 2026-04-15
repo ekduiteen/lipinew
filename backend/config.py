@@ -20,11 +20,14 @@ class Settings(BaseSettings):
     learning_dead_letter_key: str = "queue:learning:dead"
     learning_max_attempts: int = 3
     learning_worker_poll_seconds: int = 5
+    learning_min_stt_confidence: float = 0.8
+    learning_required_teacher_language: str = "ne"
+    learning_max_reply_chars: int = 220
 
     # vLLM
     vllm_url: str = "http://vllm:8080"
     vllm_model: str = "lipi"
-    vllm_timeout: float = 8.0
+    vllm_timeout: float = 20.0
 
     # ML service (STT + TTS)
     ml_service_url: str = "http://ml:5001"

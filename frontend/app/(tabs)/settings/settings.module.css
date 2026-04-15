@@ -52,3 +52,26 @@
   font-size: 0.9rem;
   font-weight: 700;
 }
+
+.dashboardLink {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  text-decoration: none;
+}
+
+.dashboardNe {
+  color: var(--fg);
+  font-size: 0.95rem;
+  font-family: var(--font-nepali);
+}
+
+.dashboardEn {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-family: var(--font-latin);
+}

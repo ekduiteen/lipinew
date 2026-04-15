@@ -24,6 +24,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+import httpx
 
 from cache import valkey
 from config import settings
@@ -37,9 +38,11 @@ from services import points as points_svc
 from services import badges as badges_svc
 from services import message_store
 from services import learning as learning_svc
+from services import topic_memory as topic_memory_svc
 from services.prompt_builder import (
     TeacherProfile,
     build_system_prompt,
+    build_turn_guidance,
     Register,
 )
 
@@ -184,6 +187,13 @@ async def conversation_ws(
                 await websocket.send_json({"type": "empty_audio"})
                 continue
 
+            await websocket.send_json({
+                "type": "transcript",
+                "text": teacher_text,
+                "language": stt_result.get("language"),
+                "confidence": stt_result.get("confidence"),
+            })
+
             logger.debug(
                 "STT %dms: %r (lang=%s conf=%.2f)",
                 stt_ms, teacher_text, stt_result["language"], stt_result["confidence"],
@@ -198,18 +208,43 @@ async def conversation_ws(
                 logger.info("Register switched to %s", new_register)
 
             # ── 4. LLM (stream tokens to client) ─────────────────────────
+            memory = await topic_memory_svc.load_session_memory(session_id)
+            memory_block = topic_memory_svc.build_memory_block(memory)
+            turn_guidance = build_turn_guidance(
+                teacher_text,
+                stt_result.get("language"),
+                memory_block=memory_block,
+            )
+            message_history.append({"role": "system", "content": turn_guidance})
             message_history.append({"role": "user", "content": teacher_text})
-            response_tokens: list[str] = []
             llm_t0 = time.monotonic()
-
-            generator = await llm_svc.generate(message_history, http, stream=True)
-            async for token in generator:
-                response_tokens.append(token)
-                await websocket.send_json({"type": "token", "text": token})
-
-            lipi_text = "".join(response_tokens).strip()
+            try:
+                lipi_text = await llm_svc.generate_teacher_reply(
+                    message_history,
+                    http,
+                    teacher_text=teacher_text,
+                    detected_language=stt_result.get("language"),
+                )
+            except httpx.TimeoutException:
+                logger.warning("LLM timeout session=%s turn=%s", session_id, turn_index // 2 + 1)
+                lipi_text = "माफ गर्नुहोस्, उत्तर दिन ढिलो भयो। फेरि छोटो गरी भन्नुहोस्।"
+            except Exception as exc:
+                logger.warning("LLM reply error session=%s: %s", session_id, exc)
+                lipi_text = "माफ गर्नुहोस्, मैले ठिकसँग बुझिनँ। फेरि एकचोटि भन्नुहोस्।"
             llm_ms = int((time.monotonic() - llm_t0) * 1000)
+            if lipi_text:
+                await websocket.send_json({"type": "token", "text": lipi_text})
+            if len(message_history) >= 2 and message_history[-2].get("content") == turn_guidance:
+                message_history.pop()
+                message_history.pop()
+                message_history.append({"role": "user", "content": teacher_text})
             message_history.append({"role": "assistant", "content": lipi_text})
+            await topic_memory_svc.update_session_memory(
+                session_id,
+                teacher_text=teacher_text,
+                lipi_text=lipi_text,
+                detected_language=stt_result.get("language"),
+            )
 
             # ── 5. Correction detection ───────────────────────────────────
             is_correction = any(
@@ -268,16 +303,31 @@ async def conversation_ws(
                 "turn": turn_index // 2,
                 "is_correction": is_correction,
             })
+            if not wav_bytes:
+                await websocket.send_json({"type": "empty_audio"})
+                await websocket.send_json({"type": "tts_end"})
+                continue
+
             await websocket.send_bytes(wav_bytes)
             await websocket.send_json({"type": "tts_end"})
 
     except WebSocketDisconnect:
         logger.info("WS disconnected session=%s", session_id)
         await _close_session(session_id, user_id)
+    except RuntimeError as exc:
+        if 'disconnect message has been received' in str(exc):
+            logger.info("WS disconnected during receive session=%s", session_id)
+            await _close_session(session_id, user_id)
+            return
+        logger.exception("WS runtime error session=%s: %s", session_id, exc)
+        await _close_session(session_id, user_id)
     except Exception as exc:
         logger.exception("WS error session=%s: %s", session_id, exc)
         await _close_session(session_id, user_id)
-        await websocket.close(code=1011, reason="internal error")
+        try:
+            await websocket.close(code=1011, reason="internal error")
+        except RuntimeError:
+            pass
 
 
 async def _close_session(session_id: str, user_id: str) -> None:

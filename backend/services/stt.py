@@ -60,5 +60,8 @@ async def transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict:
     try:
         return await _local_transcribe(audio_bytes, http)
     except Exception as exc:
+        if not settings.groq_api_key:
+            logger.error("Local STT error with no Groq fallback configured: %s", exc)
+            raise
         logger.warning("Local STT error (%s), activating Groq fallback", exc)
         return await _groq_transcribe(audio_bytes, http)

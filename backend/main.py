@@ -9,12 +9,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import text, select
+from urllib.parse import urlsplit, urlunsplit
 
 from cache import valkey
 from config import settings
 from db.connection import engine, SessionLocal
 from models.points import TeacherPointsSummary
-from routes import auth, sessions, leaderboard, teachers
+from routes import auth, sessions, leaderboard, teachers, dashboard
 from services import learning as learning_svc
 
 logging.basicConfig(
@@ -69,8 +70,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
 
-# Parse comma-separated origins
-allow_origins = [origin.strip() for origin in settings.app_url.split(",")]
+
+def _expand_local_origins(raw_origins: str) -> list[str]:
+    origins: list[str] = []
+    for origin in raw_origins.split(","):
+        origin = origin.strip()
+        if not origin:
+            continue
+        origins.append(origin)
+        parsed = urlsplit(origin)
+        if parsed.hostname == "localhost":
+            origins.append(urlunsplit((parsed.scheme, f"127.0.0.1:{parsed.port}" if parsed.port else "127.0.0.1", parsed.path, parsed.query, parsed.fragment)))
+        elif parsed.hostname == "127.0.0.1":
+            origins.append(urlunsplit((parsed.scheme, f"localhost:{parsed.port}" if parsed.port else "localhost", parsed.path, parsed.query, parsed.fragment)))
+    # Preserve order while dropping duplicates
+    return list(dict.fromkeys(origins))
+
+
+allow_origins = _expand_local_origins(settings.app_url)
 
 app.add_middleware(
     CORSMiddleware,
@@ -120,6 +137,7 @@ app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(leaderboard.router)
 app.include_router(teachers.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/health", response_model=HealthResponse)

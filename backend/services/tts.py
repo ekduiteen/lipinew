@@ -1,6 +1,7 @@
 """
-TTS service client — calls ml:5001/tts (facebook/mms-tts-npi).
-No Groq fallback for TTS — return silence bytes on failure.
+TTS service client - calls ml:5001/tts.
+No Groq fallback for TTS - return empty bytes on failure so the caller can
+surface an honest "no audio" state instead of pretending playback happened.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ _SAMPLE_RATE = 16000
 
 
 def _silent_wav(duration_ms: int = 300) -> bytes:
-    """Return a minimal WAV with silence — used as fallback."""
+    """Return a minimal WAV with silence for local testing utilities."""
     num_samples = int(_SAMPLE_RATE * duration_ms / 1000)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -34,10 +35,10 @@ def _silent_wav(duration_ms: int = 300) -> bytes:
 async def synthesize(text: str, http: httpx.AsyncClient, language: str = "ne") -> bytes:
     """
     Synthesize speech. Returns raw WAV bytes.
-    On failure returns 300ms of silence so the WebSocket flow doesn't stall.
+    On failure returns empty bytes so the WebSocket flow can signal no audio.
     """
     if not text.strip():
-        return _silent_wav()
+        return b""
     try:
         resp = await http.post(
             f"{settings.ml_service_url}/tts",
@@ -47,5 +48,5 @@ async def synthesize(text: str, http: httpx.AsyncClient, language: str = "ne") -
         resp.raise_for_status()
         return resp.content  # WAV bytes
     except Exception as exc:
-        logger.warning("TTS failed (%s) — returning silence", exc)
-        return _silent_wav()
+        logger.warning("TTS failed (%s) - returning empty audio", exc)
+        return b""

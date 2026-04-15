@@ -11,6 +11,8 @@
  */
 
 export interface WSHandlers {
+  onOpen?: () => void;
+  onTranscript: (text: string, language?: string, confidence?: number) => void;
   onToken: (text: string) => void;
   onTTSStart: (text: string, turn: number) => void;
   onAudio: (wav: ArrayBuffer) => void;
@@ -20,12 +22,21 @@ export interface WSHandlers {
   onClose: () => void;
 }
 
+function resolveWsBase(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_URL;
+  if (explicit) return explicit;
+
+  if (typeof window === "undefined") return "";
+
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+  const host = window.location.hostname;
+  const port = window.location.port === "3000" ? "8000" : window.location.port;
+
+  return `${scheme}://${host}${port ? `:${port}` : ""}`;
+}
+
 // WebSocket connects directly to backend (not proxied)
-const WS_BASE =
-  process.env.NEXT_PUBLIC_WS_URL ??
-  (typeof window !== "undefined"
-    ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`
-    : "");
+const WS_BASE = resolveWsBase();
 
 export class LipiWebSocket {
   private ws: WebSocket;
@@ -37,6 +48,7 @@ export class LipiWebSocket {
     const url = `${WS_BASE}/ws/session/${sessionId}?user_id=${userId}&token=${token ?? ""}`;
     this.ws = new WebSocket(url);
     this.ws.binaryType = "arraybuffer";
+    this.ws.onopen = () => this.handlers.onOpen?.();
     this.ws.onmessage = this._onMessage.bind(this);
     this.ws.onerror = handlers.onError;
     this.ws.onclose = handlers.onClose;
@@ -72,6 +84,13 @@ export class LipiWebSocket {
     switch (msg.type) {
       case "token":
         this.handlers.onToken(msg.text as string);
+        break;
+      case "transcript":
+        this.handlers.onTranscript(
+          msg.text as string,
+          msg.language as string | undefined,
+          msg.confidence as number | undefined,
+        );
         break;
       case "tts_start":
         this._expectingAudio = true;

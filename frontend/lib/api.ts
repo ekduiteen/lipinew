@@ -4,7 +4,7 @@
  * In prod: empty string (Caddy proxies /api/* from the same origin)
  */
 
-const BASE = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "") + "/api";
+const BASE = "/api/proxy";
 
 function authHeader(): HeadersInit {
   const token =
@@ -19,9 +19,10 @@ function authHeader(): HeadersInit {
 
 async function request<T>(
   path: string,
-  init?: RequestInit
+  init?: RequestInit & { skipAuth?: boolean }
 ): Promise<T> {
-  const headers = { "Content-Type": "application/json", ...authHeader(), ...init?.headers };
+  const auth = init?.skipAuth ? {} : authHeader();
+  const headers = { "Content-Type": "application/json", ...auth, ...init?.headers };
   console.log("API request:", path, { headers, ...init });
 
   try {
@@ -33,13 +34,14 @@ async function request<T>(
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
       console.error("API error response:", res.status, text);
-      throw new Error(`${res.status} ${text}`);
+      throw new Error(`HTTP ${res.status}: ${text}`);
     }
     const data = await res.json() as T;
     console.log("API response:", path, data);
     return data;
   } catch (error: any) {
     console.error("API request failed:", error);
+    console.error("Full error details:", error.message, error.stack);
     throw error;
   }
 }
@@ -58,14 +60,28 @@ export async function exchangeGoogleCode(
   code: string,
   redirectUri: string
 ): Promise<AuthResponse> {
-  return request("/auth/google", {
+  const res = await fetch("/api/auth/google", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code, redirect_uri: redirectUri }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<AuthResponse>;
 }
 
 export async function demoLogin(): Promise<AuthResponse> {
-  return request("/auth/demo", { method: "POST" });
+  const res = await fetch("/api/auth/demo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<AuthResponse>;
 }
 
 // ─── Onboarding ──────────────────────────────────────────────────────────────
@@ -140,4 +156,58 @@ export async function getLeaderboard(
   period: "weekly" | "monthly" | "all_time" = "weekly"
 ): Promise<LeaderboardEntry[]> {
   return request(`/leaderboard?period=${period}`);
+}
+
+// ─── Dashboard ──────────────────────────────────────────────────────────────
+
+export interface ServiceStatus {
+  ok: boolean;
+  detail: Record<string, unknown> | null;
+}
+
+export interface QueueStatus {
+  pending: number;
+  processing: number;
+  dead_letter: number;
+}
+
+export interface DataSummary {
+  total_sessions: number;
+  total_messages: number;
+  total_teacher_turns: number;
+  total_lipi_turns: number;
+  total_vocabulary_entries: number;
+  avg_stt_confidence: number | null;
+}
+
+export interface QualityReport {
+  recent_teacher_language_counts: Record<string, number>;
+  recent_low_confidence_turns: number;
+  recent_learning_eligible_turns: number;
+  recent_confused_replies: number;
+  recent_hindi_mixed_replies: number;
+}
+
+export interface RecentSample {
+  teacher_text: string;
+  teacher_language: string | null;
+  stt_confidence: number | null;
+  lipi_text: string;
+}
+
+export interface DashboardOverview {
+  system: {
+    database: ServiceStatus;
+    valkey: ServiceStatus;
+    vllm: ServiceStatus;
+    ml: ServiceStatus;
+  };
+  queues: QueueStatus;
+  data: DataSummary;
+  quality: QualityReport;
+  recent_samples: RecentSample[];
+}
+
+export async function getDashboardOverview(): Promise<DashboardOverview> {
+  return request("/dashboard/overview");
 }

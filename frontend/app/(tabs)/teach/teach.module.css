@@ -7,6 +7,7 @@
   background: var(--bg);
   position: relative;
   overflow: hidden;
+  padding: 1.5rem 1rem 7rem;
 }
 
 .orbWrap {
@@ -20,6 +21,18 @@
   font-size: 0.85rem;
   color: var(--fg-muted);
   animation: blink 1.4s ease-in-out infinite;
+}
+
+.startBtn {
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--bg);
+  padding: 0.9rem 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 @keyframes blink {
@@ -46,6 +59,49 @@
   font-size: 1.05rem;
   color: var(--fg);
   line-height: 1.5;
+}
+
+.subtitlePanel {
+  width: min(92vw, 720px);
+  margin-top: 2rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+}
+
+.subtitleBlock {
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.95rem 1rem;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--bg) 65%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.subtitleLabel {
+  display: inline-block;
+  margin-bottom: 0.45rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: var(--font-latin);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.subtitleText {
+  margin: 0;
+  color: var(--fg);
+  line-height: 1.55;
+  font-size: 1rem;
+}
+
+.subtitleMeta {
+  display: inline-block;
+  margin-top: 0.55rem;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-family: var(--font-latin);
 }
 
 @keyframes slideUp {

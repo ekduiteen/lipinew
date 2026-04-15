@@ -6,6 +6,7 @@ Never call Groq directly; it only fires when local vLLM fails.
 from __future__ import annotations
 
 import logging
+import re
 from typing import AsyncIterator
 
 import httpx
@@ -20,6 +21,71 @@ from config import settings
 
 logger = logging.getLogger("lipi.backend.llm")
 
+_DEFAULT_MAX_TOKENS = 96
+_DEFAULT_TEMPERATURE = 0.3
+
+_HINDI_MARKERS = {
+    "कैसे", "क्या", "है", "हूँ", "हैं", "नहीं", "लेकिन", "अगर", "क्यों",
+    "मेरा", "मेरी", "आपका", "आपकी", "चलिए", "कहां", "अच्छा", "धन्यवाद",
+    "चर्चा", "जारी", "रखना", "चाहते", "करते", "सकते",
+}
+_URDU_ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
+_DEVANAGARI_WORD_RE = re.compile(r"[\u0900-\u097F]+")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+_PAREN_RE = re.compile(r"\([^)]*\)")
+_MULTISPACE_RE = re.compile(r"\s+")
+_REPETITIVE_CLOSERS = {
+    "तिमीलाई कस्तो छ?",
+    "तिमीलाई के-के कुरा सिक्न मन छ?",
+    "तिमीले भन्न खोजेको के हो?",
+}
+_EMOJI_MARKERS = ("😊", "😄", "😁", "🙂", "🤔", "✨")
+_LESSON_META_PATTERNS = (
+    "तिमीले यी शब्दहरू सिकाइरहेका छौ",
+    "तिमी नेपाली भाषा सिक्दै छौ",
+    "मलाई तिमी भनेर सम्बोधन गर्छौ",
+    "तिमी के भन्न खोज्दै छौ",
+)
+
+
+def _tokenize_script_words(text: str, pattern: re.Pattern[str]) -> list[str]:
+    return pattern.findall(text)
+
+
+def _response_mode(teacher_text: str, detected_language: str | None) -> str:
+    language = (detected_language or "").lower()
+    devanagari_words = _tokenize_script_words(teacher_text, _DEVANAGARI_WORD_RE)
+    latin_words = _tokenize_script_words(teacher_text, _LATIN_WORD_RE)
+
+    if language == "en" or len(latin_words) > max(6, len(devanagari_words) * 2):
+        return "english"
+    if latin_words and devanagari_words:
+        return "mixed"
+    return "nepali"
+
+
+def _score_language_purity(text: str) -> tuple[bool, str]:
+    stripped = text.strip()
+    if not stripped:
+        return False, "empty"
+
+    if _URDU_ARABIC_RE.search(stripped):
+        return False, "urdu_script"
+
+    devanagari_words = _tokenize_script_words(stripped, _DEVANAGARI_WORD_RE)
+    latin_words = [w.lower() for w in _tokenize_script_words(stripped, _LATIN_WORD_RE)]
+    hindi_hits = [w for w in devanagari_words if w in _HINDI_MARKERS]
+
+    if len(hindi_hits) >= 2:
+        return False, f"hindi_markers={','.join(hindi_hits[:4])}"
+
+    # Teacher can switch to English, but mixed English-heavy answers should not
+    # dominate when we're supposed to stay in Nepali.
+    if latin_words and len(latin_words) > max(4, len(devanagari_words)):
+        return False, "too_much_latin"
+
+    return True, "ok"
+
 
 # ─── vLLM (primary) ─────────────────────────────────────────────────────────
 
@@ -32,8 +98,8 @@ async def _vllm_stream(
         "model": settings.vllm_model,
         "messages": messages,
         "stream": True,
-        "max_tokens": 256,
-        "temperature": 0.8,
+        "max_tokens": _DEFAULT_MAX_TOKENS,
+        "temperature": _DEFAULT_TEMPERATURE,
     }
     async with http.stream(
         "POST",
@@ -59,11 +125,111 @@ async def _vllm_complete(
     messages: list[dict],
     http: httpx.AsyncClient,
 ) -> str:
-    """Non-streaming vLLM completion — used internally by fallback wrapper."""
-    chunks: list[str] = []
-    async for token in _vllm_stream(messages, http):
-        chunks.append(token)
-    return "".join(chunks)
+    """Non-streaming vLLM completion."""
+    resp = await http.post(
+        f"{settings.vllm_url}/v1/chat/completions",
+        json={
+            "model": settings.vllm_model,
+            "messages": messages,
+            "stream": False,
+            "max_tokens": _DEFAULT_MAX_TOKENS,
+            "temperature": _DEFAULT_TEMPERATURE,
+        },
+        timeout=settings.vllm_timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+
+def _postprocess_teacher_reply(text: str) -> str:
+    cleaned = _PAREN_RE.sub(" ", text)
+    for marker in _EMOJI_MARKERS:
+        cleaned = cleaned.replace(marker, " ")
+    cleaned = cleaned.replace("\r", " ").replace("\n", " ")
+    cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
+
+    if not cleaned:
+        return ""
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[।!?])\s+", cleaned)
+        if sentence.strip()
+    ]
+
+    if len(sentences) > 1 and sentences[-1] in _REPETITIVE_CLOSERS:
+        sentences = sentences[:-1]
+
+    if len(sentences) > 2:
+        sentences = sentences[:2]
+
+    cleaned = " ".join(sentences).strip()
+
+    for pattern in _LESSON_META_PATTERNS:
+        if pattern in cleaned and len(sentences) > 1:
+            cleaned = cleaned.replace(pattern, "").strip(" ,।")
+            cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
+
+    if len(cleaned) > 140:
+        cleaned = cleaned[:140].rsplit(" ", 1)[0].rstrip(" ,;:-") + "।"
+
+    return cleaned
+
+
+async def _rewrite_to_pure_nepali(
+    text: str,
+    http: httpx.AsyncClient,
+) -> str:
+    rewrite_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a Nepali text normalizer. Rewrite the assistant reply into "
+                "clean, natural standard Nepali only. Keep the meaning. "
+                "Do not use Hindi, Urdu script, or mixed-language phrasing. "
+                "Return only the rewritten Nepali reply."
+            ),
+        },
+        {"role": "user", "content": text},
+    ]
+    rewritten = await _vllm_complete(rewrite_messages, http)
+    return rewritten.strip()
+
+
+async def enforce_pure_nepali_reply(
+    text: str,
+    http: httpx.AsyncClient,
+) -> str:
+    normalized = _postprocess_teacher_reply(text)
+    valid, reason = _score_language_purity(normalized)
+    if valid:
+        return normalized
+
+    logger.warning("LLM reply failed Nepali purity check (%s): %r", reason, text[:200])
+
+    try:
+        rewritten = await _rewrite_to_pure_nepali(text, http)
+        rewritten = _postprocess_teacher_reply(rewritten)
+        valid, rewrite_reason = _score_language_purity(rewritten)
+        if valid:
+            logger.info("LLM reply rewritten into clean Nepali")
+            return rewritten
+        logger.warning(
+            "Rewritten Nepali reply still failed purity check (%s): %r",
+            rewrite_reason,
+            rewritten[:200],
+        )
+    except Exception as exc:
+        logger.warning("Nepali rewrite step failed: %s", exc)
+
+    return "माफ गर्नुहोस्, फेरि छोटो गरी भन्नुहोस्।"
+
+
+def _postprocess_multilingual_reply(text: str) -> str:
+    cleaned = _postprocess_teacher_reply(text)
+    if not cleaned:
+        return "Sorry, please say that once more."
+    return cleaned
 
 
 # ─── Groq fallback ───────────────────────────────────────────────────────────
@@ -90,8 +256,8 @@ async def _groq_complete(
         json={
             "model": "llama-3.3-70b-versatile",
             "messages": messages,
-            "max_tokens": 256,
-            "temperature": 0.8,
+            "max_tokens": _DEFAULT_MAX_TOKENS,
+            "temperature": _DEFAULT_TEMPERATURE,
         },
         timeout=15.0,
     )
@@ -120,6 +286,9 @@ async def generate(
             return _guarded_stream(messages, http)
         return await _vllm_complete(messages, http)
     except Exception as exc:
+        if not settings.groq_api_key:
+            logger.error("vLLM error with no Groq fallback configured: %s", exc)
+            raise
         logger.warning("vLLM error (%s), activating Groq fallback", exc)
         return await _groq_complete(messages, http)
 
@@ -133,6 +302,26 @@ async def _guarded_stream(
         async for token in _vllm_stream(messages, http):
             yield token
     except Exception as exc:
+        if not settings.groq_api_key:
+            logger.error("vLLM stream error with no Groq fallback configured: %s", exc)
+            raise
         logger.warning("vLLM stream error (%s), falling back to Groq", exc)
         text = await _groq_complete(messages, http)
         yield text
+
+
+async def generate_teacher_reply(
+    messages: list[dict],
+    http: httpx.AsyncClient,
+    *,
+    teacher_text: str,
+    detected_language: str | None = None,
+) -> str:
+    """Generate a teacher-facing reply and enforce Nepali purity before use."""
+    raw = await generate(messages, http, stream=False)
+    if not isinstance(raw, str):
+        raw = "".join([chunk async for chunk in raw])
+    mode = _response_mode(teacher_text, detected_language)
+    if mode == "nepali":
+        return await enforce_pure_nepali_reply(raw, http)
+    return _postprocess_multilingual_reply(raw)
