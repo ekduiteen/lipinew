@@ -21,6 +21,7 @@ from models.points import TeacherPointsSummary
 import models.phrases  # Load phrase laboratory models
 from routes import auth, sessions, leaderboard, teachers, dashboard, phrases
 from services import learning as learning_svc
+from services import phrase_generator as phrase_gen_svc
 
 try:
     import models.heritage  # type: ignore[import-not-found]  # Load heritage models
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
 
     summary_task = None
     learning_task = None
+    phrase_gen_task = None
 
     try:
         # Validate JWT_SECRET is securely configured (defensive check)
@@ -83,6 +85,7 @@ async def lifespan(app: FastAPI):
         # Start background tasks
         summary_task = asyncio.create_task(_summary_rebuild_loop())
         learning_task = asyncio.create_task(learning_svc.run_worker(app.state.http))
+        phrase_gen_task = asyncio.create_task(phrase_gen_svc.auto_generate_phrases(app.state.http))
 
         logger.info("LIPI backend startup complete - ready for requests")
     except Exception as exc:
@@ -97,6 +100,8 @@ async def lifespan(app: FastAPI):
             summary_task.cancel()
         if learning_task:
             learning_task.cancel()
+        if phrase_gen_task:
+            phrase_gen_task.cancel()
         try:
             await app.state.http.aclose()
         except (AttributeError, NameError):
