@@ -29,7 +29,7 @@ def build_routing_hooks(
 ) -> RoutingHooks:
     dialect_adapter = teacher_model.dialect_signature_hook
     behavior_adapter = teacher_model.teaching_style
-    stt_bias = understanding.dialect_hook
+    stt_bias = understanding.dialect_guess
     tts_voice_profile = "english_piper" if behavior_policy.response_language == "en" else "nepali_piper"
     response_ranker = "correction_ranker" if understanding.is_correction else "default_ranker"
     return RoutingHooks(
