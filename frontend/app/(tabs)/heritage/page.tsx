@@ -2,6 +2,49 @@
 
 import React, { useState, useRef } from "react";
 
+const SAMPLE_RATE = 16000;
+
+function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  const str = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); view.setUint32(4, 36 + samples.length * 2, true);
+  str(8, "WAVE"); str(12, "fmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  str(36, "data"); view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return buf;
+}
+
+async function blobToWav(blob: Blob): Promise<Blob> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  try {
+    const decoded = await ctx.decodeAudioData(arrayBuffer);
+    const mono = decoded.numberOfChannels > 1
+      ? (() => {
+          const out = new Float32Array(decoded.length);
+          for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+            const chan = decoded.getChannelData(ch);
+            for (let i = 0; i < chan.length; i++) out[i] += chan[i];
+          }
+          for (let i = 0; i < out.length; i++) out[i] /= decoded.numberOfChannels;
+          return out;
+        })()
+      : decoded.getChannelData(0);
+    return new Blob([encodeWav(mono, SAMPLE_RATE)], { type: "audio/wav" });
+  } finally {
+    await ctx.close();
+  }
+}
+
 const MODES = [
   { id: "STORY",            ne: "कथा",       en: "Story" },
   { id: "WORD_EXPLANATION", ne: "शब्द",       en: "Word / Phrase" },
@@ -59,10 +102,12 @@ export default function HeritagePage() {
   const startRecord = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]
+        .find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mr;
       audioChunksRef.current = [];
-      mr.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = processRecording;
       mr.start();
       setIsRecording(true);
@@ -87,10 +132,14 @@ export default function HeritagePage() {
       return;
     }
 
-    const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-    const fd = new FormData();
-    fd.append("audio_file", blob, "heritage.webm");
     mediaRecorderRef.current?.stream.getTracks().forEach((t) => t.stop());
+
+    // Convert browser recording (webm/ogg/mp4) → 16-bit PCM WAV
+    // The ML service uses soundfile which does not support WebM
+    const rawBlob = new Blob(audioChunksRef.current);
+    const wavBlob = await blobToWav(rawBlob);
+    const fd = new FormData();
+    fd.append("audio_file", wavBlob, "heritage.wav");
 
     try {
       const endpoint = stage === "PRIMARY"
