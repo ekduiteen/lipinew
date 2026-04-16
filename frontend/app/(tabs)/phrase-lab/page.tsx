@@ -27,24 +27,11 @@ export default function PhraseLabPage() {
     loadNextPhrase();
   }, []);
 
-  const getToken = () => localStorage.getItem("lipi.token") || "";
-
   const loadNextPhrase = async () => {
     setState("LOADING");
     try {
-      const token = getToken();
-      if (!token) {
-        setPhrase({
-          id: "",
-          text_en: "Please sign in to start teaching.",
-          text_ne: "सिक्षण गर्न कृपया साइन इन गर्नुहोस्।"
-        });
-        setState("PROMPT");
-        return;
-      }
-
       const res = await fetch("http://localhost:8000/api/phrases/next", {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: "include"  // Send cookies with the request
       });
 
       if (!res.ok) {
@@ -83,10 +70,10 @@ export default function PhraseLabPage() {
       const formData = new FormData();
       formData.append("phrase_id", phrase.id);
       formData.append("reason", "user_skipped");
-      
+
       const res = await fetch("http://localhost:8000/api/phrases/skip", {
         method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
+        credentials: "include",
         body: formData
       });
       const data = await res.json();
@@ -136,7 +123,7 @@ export default function PhraseLabPage() {
     try {
       const res = await fetch("http://localhost:8000/api/phrases/submit-audio", {
         method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
+        credentials: "include",
         body: formData
       });
       const data = await res.json();

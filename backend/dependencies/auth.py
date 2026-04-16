@@ -21,10 +21,24 @@ _bearer = HTTPBearer(auto_error=True)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> str:
-    """Decode Bearer JWT → user_id. Raises 401 on invalid/expired token."""
-    return decode_access_token(credentials.credentials)
+    """Decode Bearer JWT from Authorization header or httpOnly cookie → user_id. Raises 401 on invalid/expired token."""
+    # First, try Authorization header (REST API calls)
+    if credentials is not None:
+        return decode_access_token(credentials.credentials)
+
+    # Fall back to httpOnly cookie (browser requests)
+    token = request.cookies.get("lipi.token")
+    if token:
+        return decode_access_token(token)
+
+    # No token found
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+    )
 
 
 async def get_current_user_flexible(
