@@ -87,23 +87,33 @@ Key files:
 - [backend/services/diversity.py](backend/services/diversity.py)
 - [backend/services/response_cleanup.py](backend/services/response_cleanup.py)
 - [backend/services/post_generation_guard.py](backend/services/post_generation_guard.py)
-- [backend/services/training_capture.py](backend/services/training_capture.py)
+- [backend/services/admin_moderation.py](backend/services/admin_moderation.py)
+- [backend/services/admin_export.py](backend/services/admin_export.py)
 - [backend/services/audio_storage.py](backend/services/audio_storage.py)
 - [backend/services/learning.py](backend/services/learning.py)
 - [backend/services/heritage_prompt.py](backend/services/heritage_prompt.py)
 - [backend/services/phrase_pipeline.py](backend/services/phrase_pipeline.py)
 
 Every teacher turn now produces structured capture layers:
-- raw data
-- derived signals
-- high-value learning signals
+- raw data (Messages)
+- derived signals (TeacherSignals)
+- high-value learning signals (CorrectionEvents)
+- **verified ground-truth (GoldRecords)** via the Control Dashboard
 
-Those are stored alongside the `messages` record using JSONB fields, plus correction graph, session memory, teacher signals, async learning updates, and async speaker-embedding capture into `speaker_embeddings` with lightweight incremental cluster assignment.
-
-LIPI now has three collection modes:
+LIPI now has four collection modes:
 - `Teach`: open-ended student/teacher conversation (original)
-- `Heritage`: structured dialect/register capture via guided prompts (NEW)
-- `Phrase Lab`: structured phrase and variation capture for cleaner supervised data (NEW)
+- `Heritage`: structured dialect/register capture via guided prompts (Guided)
+- `Phrase Lab`: structured phrase and variation capture for cleaner supervised data (Guided)
+- **`Gold Curation`**: expert-human moderation and labeling in the Enterprise Dashboard.
+
+## Control Stack
+
+The platform now includes a standalone administrative and analyst environment:
+- **frontend-control** on `http://127.0.0.1:3001` (Enterprise Dashboard)
+- **Admin Security**: Isolated `AdminAccount` and `AdminAuditLog` system.
+- **Moderation**: High-speed audio labeling workbench with Waveform visualizers.
+- **Deep Analytics**: Interactive Recharts-powered dashboards for Curation Yield.
+- **Factory**: Versioned dataset snapshot logic with MinIO export.
 
 The newest learning direction is also more conservative:
 - correction-derived rules are moving toward a review queue instead of being blindly trusted

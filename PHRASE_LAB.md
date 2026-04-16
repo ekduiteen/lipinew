@@ -1,18 +1,18 @@
 # Phrase Lab — LIPI Data Collection Module
 
-**Status:** ✅ **FUNCTIONAL** (v1.0.0)
+**Status:** ✅ **FUNCTIONAL** (v1.1 — April 17, 2026)
 
 ## What is Phrase Lab?
 
-Phrase Lab is a structured data collection lane within LIPI that captures **controlled variation** of pre-defined phrases across different registers, dialects, and speaking styles.
+Phrase Lab is a structured data collection lane that captures **controlled variation** of pre-defined phrases across registers, dialects, and speaking styles.
 
-Unlike the open-ended **Teach** tab (free conversation), Phrase Lab presents teachers with:
-- A single phrase (bilingual: Nepali + English)
-- A **hold-to-record** interface to capture their pronunciation
-- Quality checks (audio clarity) before acceptance
-- A follow-up prompt for **variations** (casual, friendly, respectful, elder, local register)
+Unlike the open-ended **Teach** tab (free conversation), Phrase Lab:
+- Presents a single bilingual phrase (Nepali primary, English secondary)
+- Uses **hold-to-record** for audio capture
+- Runs a quality check (hearing engine) before accepting
+- Prompts for **variations** (casual, friendly, respectful, elder, local register)
 
-All recordings are timestamped, tagged with acoustic metadata, and queued for fine-tuning.
+All recordings are stored as WAV, run through STT, tagged with acoustic metadata, and queued for fine-tuning.
 
 ---
 
@@ -20,254 +20,160 @@ All recordings are timestamped, tagged with acoustic metadata, and queued for fi
 
 ```
 [Phrase Lab] → [Load next phrase] → [Display phrase card]
-                                    ↓
-                              [Hold to record]
-                                    ↓
-                        [Audio quality check]
-                                    ↓
-                    ╔═ POOR? ═══╗ GOOD?
-                    ║            ↓
-                   [RETRY]  [Success card]
-                            + [Variation prompt]
-                                    ↓
-                        [Select variation type]
-                                    ↓
-                        [Record variation audio]
-                                    ↓
-                        [Load next phrase]
+                                          ↓
+                                   [Hold to record]
+                                          ↓
+                              [blobToWav(): WebM → WAV]
+                                          ↓
+                                [POST /api/phrases/submit-audio]
+                                          ↓
+                              ╔═ quality poor? ═╗ ok/good?
+                              ║                  ↓
+                            [RETRY]         [Variation prompt]
+                                                  ↓
+                                     [Record / skip variations]
+                                                  ↓
+                                        [Next phrase]
 ```
 
 ---
 
 ## Technical Architecture
 
-### Frontend (`frontend/app/(tabs)/phrase-lab/`)
+### Frontend (`frontend/app/(tabs)/phrase-lab/page.tsx`)
 
-**Page:** `page.tsx` — State machine managing the full flow
-- States: `LOADING`, `PROMPT`, `RECORDING`, `PROCESSING`, `SUCCESS_VARIATION`, `RETRY`
-- MediaRecorder for browser audio capture
-- Sends to `/api/phrases/submit-audio` and `/api/phrases/submit-variation-audio`
+State machine: `LOADING → PROMPT → RECORDING → PROCESSING → SUCCESS_VARIATION → RETRY`
 
-**Components:**
-1. `HoldToRecordButton.tsx` — Pointer-based recording (mobile + desktop)
-2. `PhraseCard.tsx` — Bilingual phrase display (Nepali prominent)
-3. `VariationPrompt.tsx` — Button grid for register selection
+**Critical: Audio Format Conversion**
 
-### Backend (`backend/routes/phrases.py`)
+The ML service uses `soundfile.read()` which **cannot read WebM/Opus** (the format browsers output from `MediaRecorder`). The page converts before upload:
 
-**REST Endpoints:**
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/phrases/next` | GET | Fetch next phrase for user (smart selection) |
-| `/api/phrases/skip` | POST | Mark phrase as skipped, load next |
-| `/api/phrases/submit-audio` | POST | Upload primary recording, return success/retry |
-| `/api/phrases/submit-variation-audio` | POST | Upload variation recording |
-
-### Services (`backend/services/`)
-
-**`phrase_pipeline.py`** — Core pipeline
-- `get_next_phrase()` — Intelligent phrase selection considering:
-  - Reconfirmation queue (low STT confidence)
-  - Under-collected phrases (fewest submissions)
-  - User skip/completion history
-  
-- `process_phrase_audio()` — Full pipeline:
-  1. STT (faster-whisper large-v3)
-  2. Hearing analysis (quality label: poor/ok/good)
-  3. Audio understanding (semantic + acoustic signals)
-  4. Database ingestion (group + submission records)
-  5. Learning queue enqueue (async fine-tuning prep)
-
-**`audio_storage.py`** — MinIO object storage
-- Stores phrase audio in `phrase-lab-audio/{user_id}/{phrase_id}/`
-- Async to thread to prevent blocking
-
-**`audio_understanding.py`** — Acoustic/semantic extraction
-- Calls ML service `/audio-understand` endpoint (1.5s timeout)
-- Gracefully fallbacks to heuristics if service unavailable
-- Extracts: dialect guess, tone, emotion, speech rate, prosody, code-switch ratio
-
-### Database (`backend/models/phrases.py`)
-
-**Core Tables:**
-
-| Table | Purpose |
-|-------|---------|
-| `phrases` | Phrase library (text_en, text_ne, category, is_active) |
-| `phrase_submission_groups` | Groups primary + variations together |
-| `phrase_submissions` | Individual audio submissions (acoustic metadata) |
-| `phrase_skip_events` | Skip reason tracking |
-| `phrase_reconfirmation_queue` | Low-confidence STT resubmissions |
-| `phrase_metrics` | Per-phrase: submission count, dialect coverage, quality |
-| `phrase_generation_batches` | (Future) LLM-generated phrases |
-
----
-
-## Data Pipeline
-
-### Audio Processing
-
-1. **Record** — User holds button, records audio (WebM format)
-2. **Store** — Audio saved to MinIO with UUID + timestamp
-3. **STT** — faster-whisper transcribes to text (+ confidence)
-4. **Quality Check** — Hearing engine checks for clipping/noise
-   - If `quality_label == "poor"`: User retries
-5. **Semantic Extract** — Audio understanding model returns:
-   - `dialect_guess`: e.g., "kathmandu", "newari_mix"
-   - `tone`, `emotion`, `speech_rate`, `prosody_pattern`
-   - `code_switch_ratio`: % of English vs Nepali
-
-6. **DB Ingestion** — PhraseSubmission created with all signals
-7. **Learning Queue** — Async job enqueued for:
-   - Speaker embedding clustering
-   - Acoustic variation catalog
-   - Fine-tuning corpus preparation
-
-### Reconfirmation Logic
-
-If `stt_confidence < 0.6` AND `quality_label != "poor"`:
-- Likely a rare dialect or strong accent
-- Added to `phrase_reconfirmation_queue`
-- Prompts user to re-record on next visit
-- Original + reconfirmation paired in learner pipeline
-
----
-
-## Seed Data (v1)
-
-10 phrases inserted in database:
-
-| Nepali | English | Category |
-|--------|---------|----------|
-| नमस्ते | Hello | greetings |
-| तपाई कस्तो छन्? | How are you? | greetings |
-| मेरो नाम ... हो | My name is... | introductions |
-| धन्यवाद | Thank you | politeness |
-| कृपया | Please | politeness |
-| तपाईको नाम के हो? | What is your name? | questions |
-| तपाई कहाँबाट हुनुहुन्छ? | Where are you from? | questions |
-| तपाई नेपाली बोल्नुहुन्छ? | Do you speak Nepali? | questions |
-| शुप्रभात | Good morning | greetings |
-| शुभरात्रि | Good night | greetings |
-
----
-
-## Testing
-
-### Browser Test
-1. Open http://localhost:3000
-2. Sign in (demo or Google)
-3. Click **Phrases** (💬) in BottomNav
-4. Phrase card should load with bilingual text
-5. Hold microphone button to record
-6. After upload, select a variation type
-7. Next phrase auto-loads
-
-### API Test
-```bash
-# Get next phrase (requires JWT token)
-curl -H "Authorization: Bearer <token>" \
-  http://localhost:8000/api/phrases/next
-
-# Response:
-{
-  "id": "uuid-here",
-  "text_en": "Hello",
-  "text_ne": "नमस्ते",
-  "category": "greetings"
+```typescript
+async function blobToWav(blob: Blob): Promise<Blob> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const ctx = new AudioContext({ sampleRate: 16000 });
+  const decoded = await ctx.decodeAudioData(arrayBuffer);
+  // downmix to mono + re-encode as 16-bit PCM WAV
+  return new Blob([encodeWav(mono, 16000)], { type: "audio/wav" });
 }
 ```
 
+File sent to backend: `phrase.wav` (not `.webm`)
+
+**Auth:** Uses `credentials: "include"` — token is in an httpOnly cookie, never in localStorage.
+
+### Backend (`backend/routes/phrases.py`)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/phrases/next` | GET | Smart phrase selection for user |
+| `/api/phrases/skip` | POST | Mark skipped, auto-return next |
+| `/api/phrases/submit-audio` | POST | Primary recording: STT → quality → DB |
+| `/api/phrases/submit-variation-audio` | POST | Variation recording |
+
+### Pipeline (`backend/services/phrase_pipeline.py`)
+
+`process_phrase_audio()`:
+1. STT via faster-whisper (WAV input)
+2. `hearing_svc.analyze_hearing()` — quality label: `poor` / `ok` / `good`
+3. If `poor` → return `{status: "retry"}` — user re-records
+4. `audio_understanding_svc.extract_audio_signals()` — dialect, tone, emotion, speech rate
+5. Create `PhraseSubmissionGroup` + `PhraseSubmission` in DB
+6. Update `PhraseMetrics`
+7. Enqueue to learning queue (async fine-tuning prep)
+8. If STT confidence < 0.6 AND quality not poor → add to reconfirmation queue
+
+### Phrase Generation (`backend/services/phrase_generator.py`)
+
+Background asyncio task (starts at app startup, runs every 5 minutes):
+- Checks if active phrase count < 20
+- Calls Gemma 4 via vLLM to generate 3 phrases per category (10 categories)
+- Inserts with `is_active=True`, `review_status="approved"`
+- Logs batches to `phrase_generation_batches` table
+
+Current DB: 30 phrases across 6 categories.
+
 ---
 
-## Configuration
+## Database Tables
 
-### Environment Variables
+| Table | Purpose |
+|-------|---------|
+| `phrases` | Phrase library (text_en, text_ne, category, is_active, review_status) |
+| `phrase_submission_groups` | Groups primary + variations together per user per phrase |
+| `phrase_submissions` | Individual recordings + full acoustic metadata |
+| `phrase_skip_events` | Skip reason tracking |
+| `phrase_reconfirmation_queue` | Low-confidence STT re-record queue |
+| `phrase_metrics` | Per-phrase: submission count, dialect coverage, quality |
+| `phrase_generation_batches` | LLM generation batch audit log |
+
+---
+
+## Acoustic Metadata Captured per Submission
+
+```python
+primary_language      # ne / en / ne-en-mix
+code_switch_ratio     # 0.0–1.0 (% English in Nepali speech)
+tone                  # formal / casual / neutral
+emotion               # neutral / warm / urgent / etc.
+dialect_guess         # kathmandu / newari_mix / terai / etc.
+dialect_confidence    # 0.0–1.0
+speech_rate           # slow / normal / fast
+prosody_pattern       # flat / natural / expressive
+stt_confidence        # 0.0–1.0 from faster-whisper
+hearing_quality_label # poor / ok / good
+```
+
+---
+
+## API Usage
+
 ```bash
-# ML Service (for audio understanding)
-ML_SERVICE_URL=http://localhost:5001
+# Requires auth cookie (sign in first)
 
-# MinIO (audio storage)
-MINIO_ENDPOINT=localhost:9000
-MINIO_BUCKET_AUDIO=lipi-audio
+# Next phrase
+curl -b "lipi.token=<jwt>" http://localhost:8000/api/phrases/next
 
-# Database (phrase tables)
-DATABASE_URL=postgresql+asyncpg://...
-```
-
-### Frontend
-```typescript
-// Next.js API proxy at /api/phrases/* routes to backend
-// Auth via JWT token in localStorage: lipi.token
+# Submit recording
+curl -b "lipi.token=<jwt>" -X POST \
+  -F "phrase_id=<uuid>" \
+  -F "audio_file=@recording.wav;type=audio/wav" \
+  http://localhost:8000/api/phrases/submit-audio
 ```
 
 ---
 
-## Known Limitations (v1)
+## Known Limitations (v1.1)
 
-1. **Audio Understanding Endpoint** — Currently calls `/audio-understand` on ML service
-   - If unavailable, gracefully fallbacks to heuristics
-   - No variation-specific acoustic tuning yet
+1. **Variation recording** — UI shows variation buttons but currently just loads next phrase. Full variation re-recording (v2) will prompt user to record each variation style.
 
-2. **Variation Recording** — Currently taps a variation button, loads next phrase
-   - Full v2 will re-prompt for recording each variation
-   - Could be optimized for rapid multi-variation capture
+2. **Reconfirmation** — Queue is populated but not actively shown to users yet. v2 will inject reconfirmation prompts into the phrase flow.
 
-3. **Phrase Generation** — Placeholder admin endpoint (not user-facing)
-   - Future: LLM batch generation + admin review queue
-
-4. **Reconfirmation** — Queued but not actively prompted yet
-   - v2 will intelligently inject reconfirmation into user flow
+3. **Admin review** — `review_status` and `is_active` flags exist but there's no admin UI. All LLM-generated phrases are auto-approved for now.
 
 ---
 
-## Next Steps (Phase 2+)
-
-1. **Batch Phrase Import** — Script to seed 1000+ phrases from Nepali corpus
-2. **Variation Tuning** — Specialized acoustic models per register
-3. **Quality Dashboard** — Admin view of submission quality metrics
-4. **Speaker Clustering** — Use embeddings to ID unique speakers
-5. **Fine-Tuning Pipeline** — Monthly LoRA training on phrase submissions
-
----
-
-## Files Summary
+## Files
 
 ```
 frontend/
   app/(tabs)/phrase-lab/
-    page.tsx                          # State machine + orchestration
-  components/phrase-lab/
-    HoldToRecordButton.tsx            # Recording UI
-    PhraseCard.tsx                    # Display bilingual phrase
-    VariationPrompt.tsx               # Variation selection grid
+    page.tsx              # State machine + blobToWav() + recording UI
 
 backend/
-  routes/phrases.py                   # REST endpoints
-  services/phrase_pipeline.py         # Core processing pipeline
-  services/audio_storage.py           # MinIO integration
-  services/audio_understanding.py     # Semantic/acoustic extraction
-  models/phrases.py                   # SQLAlchemy ORM
+  routes/phrases.py       # REST endpoints
+  services/
+    phrase_pipeline.py    # Core processing pipeline
+    phrase_generator.py   # Background LLM phrase generation
+    audio_storage.py      # MinIO: phrase-lab-audio/{user_id}/{phrase_id}/
+    audio_understanding.py# Acoustic/semantic signal extraction
+  models/phrases.py       # SQLAlchemy ORM
 
-docs/
-  PHRASE_LAB.md                       # (This file)
+ml/
+  stt.py                  # Uses soundfile — requires WAV/FLAC/OGG input (NOT WebM)
 ```
 
 ---
 
-## Status
-
-✅ **Frontend** — All components built and tested  
-✅ **Backend** — All endpoints implemented  
-✅ **Database** — Schema created, seed data loaded  
-✅ **Audio Storage** — MinIO integration working  
-✅ **STT Pipeline** — faster-whisper integrated  
-✅ **Learning Queue** — Async ingestion ready  
-
-**Ready for user testing and data collection.**
-
----
-
 Last updated: 2026-04-17  
-Feature completeness: v1.0.0 (Stable)
+Version: v1.1

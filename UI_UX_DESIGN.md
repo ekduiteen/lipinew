@@ -64,70 +64,78 @@ LIPI_PERSONALITY = {
 - **Nepali script**: Same font family — Devanagari feels modern, not traditional
 - **Hierarchy**: Nepali larger/bolder on top, English smaller below
 
-### Themes (selectable in Settings)
+### Themes — "Pastel Intelligent Minimalism" (5 options, selectable in Settings)
 
-#### 1. Dark Mode (default)
-```
-Background:  #0a0a0f
-Orb:         Aurora — blue → purple → magenta shifting
-Text:        #f0f0ff
-Cards:       Frosted glass rgba(255,255,255,0.05)
-Buttons:     Glowing border, no fill
-```
+Aesthetic: soft frosted glass, gentle pastel accents, clean typography. Think Apple Notes meets Gemini — calm intelligence, not loud tech.
 
-#### 2. Bright Mode
+#### 1. Pastel Light (default)
 ```
-Background:  #f8f8ff
-Orb:         Soft blue + lavender, light glow
-Text:        #0a0a1a
-Cards:       White, subtle drop shadow
-Buttons:     Solid fill, clean edges
+Background:  #F8F6F2
+Accent:      #2E2E2E (near-black)
+Orb:         Lavender → Sky → Butter pastels, breathing idle
+Cards:       #FFFDFC, 1px border rgba(0,0,0,0.07)
 ```
 
-#### 3. Cyber Punk
+#### 2. Warm Cream
 ```
-Background:  #000000
-Orb:         Neon green + hot pink, crackling edges
-Text:        #00ff9f
-Cards:       Black + neon border glow
-Grid:        Subtle perspective grid on background
-Glitch:      Occasional text glitch animation
+Background:  #FAF7F2
+Accent:      #5C3A1E (warm brown)
+Orb:         Peach → Lavender → Sage
+Cards:       #FFFCF8
 ```
 
-#### 4. Traditional
+#### 3. Lavender Mist
 ```
-Background:  #1a0f00
-Orb:         Warm gold → deep red, slow pulse
-Text:        #ffd97d
-Cards:       Warm amber frosted glass
-Buttons:     Gold border
-Note:        For users who prefer cultural warmth
+Background:  #F4F0FA
+Accent:      #6B4FA0 (deep lavender)
+Orb:         Lavender → Violet → Sage
+Cards:       #FDFCFF
 ```
 
-### Implementation (CSS variables)
+#### 4. Sage Air
+```
+Background:  #F0F5F0
+Accent:      #2A5A2A (forest green)
+Orb:         Sage → Mint → Lavender
+Cards:       #FAFDF8
+```
+
+#### 5. Dark
+```
+Background:  #0F0F14
+Accent:      #8B7FD4 (soft indigo)
+Orb:         Indigo → Violet → Pink
+Cards:       #17171F, border rgba(255,255,255,0.07)
+```
+
+### Implementation (CSS variables in `frontend/app/globals.css`)
+
 ```css
-[data-theme="dark"] {
-  --bg:          #0a0a0f;
-  --orb-a:       #6366f1;
-  --orb-b:       #a855f7;
-  --orb-c:       #ec4899;
-  --text:        #f0f0ff;
-  --card-bg:     rgba(255,255,255,0.05);
+/* Theme applied to <html> via data-theme attribute */
+/* Blocking script in layout.tsx reads localStorage before first paint — no flash */
+
+[data-theme="pastel"] {
+  --bg: #F8F6F2;  --bg-card: #FFFDFC;  --bg-elev: #FFFFFF;
+  --fg: #2E2E2E;  --fg-muted: #7C7C84; --fg-subtle: #A9A9B2;
+  --accent: #2E2E2E;  --accent-fg: #FFFDFC;
+  --border: rgba(0,0,0,0.07);
+  --orb-a: #CBBBEF;  --orb-b: #D7E8FF;  --orb-c: #F8EDB8;
 }
 
-[data-theme="cyberpunk"] {
-  --bg:          #000000;
-  --orb-a:       #00ff9f;
-  --orb-b:       #ff00ff;
-  --orb-c:       #00ffff;
-  --text:        #00ff9f;
-  --card-bg:     rgba(0,255,159,0.05);
+[data-theme="dark"] {
+  --bg: #0F0F14;  --bg-card: #17171F;  --bg-elev: #1E1E28;
+  --fg: #F0F0F8;  --fg-muted: #8080A0; --fg-subtle: #505070;
+  --accent: #8B7FD4;  --accent-fg: #0F0F14;
+  --border: rgba(255,255,255,0.07);
+  --orb-a: #6366f1;  --orb-b: #8b5cf6;  --orb-c: #ec4899;
 }
 ```
 
-The orb reads `--orb-a/b/c` — theme change instantly recolors everything including animations. Theme picker shows **live animated orb preview** for each option (not static swatches).
+Orb reads `--orb-a/b/c` — theme change instantly recolors orb and all animations.
+Theme picker shows **live animated orb preview** per option (not static swatches).
 
-**Theme selection**: Settings screen only. Not during onboarding.
+**Theme selection**: Settings screen only. Persists in `localStorage` as `lipi.theme`.
+**Flash prevention**: `layout.tsx` injects a 1-line blocking script that applies the stored theme before any CSS renders.
 
 ---
 

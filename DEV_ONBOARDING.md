@@ -157,6 +157,13 @@ lipi/
 │       ├── api.ts              ← REST client for all /api/* calls
 │       └── websocket.ts        ← WebSocket client (binary + JSON frames)
 │
+├── frontend-control/           ← Next.js 14 (Admin & Analyst Dashboard)
+│   ├── src/app/(dashboard)     ← Moderation & Analytics UI
+│   ├── src/app/login           ← Isolated Admin Login
+│   ├── src/components/analytics ← Recharts Visualization Core
+│   ├── src/components/dashboard ← Dashboard Filters & UI controls
+│   └── src/context/AuthContext ← Admin JWT session management
+│
 └── pipeline/                   ← Monthly LoRA fine-tuning (PHASE 4 — not yet built)
     ├── prepare_data.py         ← TBD: training data preparation
     ├── train_lora.py           ← TBD: LoRA fine-tuning on Qwen/Whisper
@@ -518,8 +525,24 @@ Browser                    Backend
 | Route | Dependency |
 |---|---|
 | `GET /api/teachers/me/stats` | `get_current_user` |
-| `GET /api/teachers/me/badges` | `get_current_user` |
-| `POST /api/teachers/onboarding` | `get_current_user` (JWT Bearer) |
+| `POST /api/ctrl/moderation/next` | `get_current_admin` (Admin JWT required) |
+| `POST /api/ctrl/datasets/snapshot` | `get_current_admin` |
+| `WS /ws/session/{id}` | `get_ws_user` |
+
+### Admin Authentication (Standalone)
+
+Administrative security is isolated from the teacher user base. Admins use a separate login flow (`POST /api/ctrl/auth/login`) that issues a JWT with a `ctrl: true` scope.
+
+| Dependency | Use case |
+|---|---|
+| `get_current_admin` | Administrative routes — verifies `ctrl` scope in JWT |
+
+#### Bootstrapping initial access
+Admins are not created via public sign-up. Use the CLI script to create the first Super User:
+```bash
+python backend/scripts/bootstrap_admin.py --email admin@lipi.ai --name "Principal Admin"
+```
+Once created, log in via `http://localhost:3001/login`.
 | `GET /api/leaderboard` | `get_current_user_optional` (public read) |
 | `WS /ws/session/{id}` | `get_ws_user` |
 | `POST /api/sessions` | `get_ws_user` (same pattern) |
@@ -574,6 +597,24 @@ For each word:
   - derived dialect/style/nuance envelope
   - high-value correction/teaching envelope
 - `teacher_signals` records longitudinal language/style/dialect observations per teacher turn
+
+---
+
+## 7d. Administrative Analytics & Caching
+
+The LIPI Control dashboard uses a high-performance aggregation engine to measure data yield.
+
+**Query Flow:**
+1. Frontend requests `GET /api/ctrl/system/stats/timeseries?dialect=...&register=...`.
+2. Backend checks Valkey for key `ctrl:stats:ts:{days}:{dialect}:{register}`.
+3. If CACHE MISS:
+   - Aggregates `dataset_gold_records` by day (filtered by params).
+   - Aggregates `messages` (raw) by day (joined with `teaching_sessions` for register filter).
+   - Combines results into a Recharts-ready payload.
+   - Saves to Valkey with a **15-minute TTL**.
+4. Result returned to frontend for rendering in interactive Area/Bar charts.
+
+---
 
 ---
 

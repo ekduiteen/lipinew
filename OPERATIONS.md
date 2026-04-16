@@ -37,6 +37,12 @@ docker compose -f docker-compose.lipi.yml ps
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:5001/health
 curl http://127.0.0.1:8100/v1/models
+
+### Admin Stack
+```bash
+# Internal health check (Admin only)
+curl -H "Authorization: Bearer <ADMIN_JWT>" http://127.0.0.1:8000/api/ctrl/system/health
+```
 ```
 
 ## Local Operations
@@ -142,6 +148,23 @@ curl http://127.0.0.1:5001/health
 curl http://127.0.0.1:8100/v1/models
 ```
 
+## Administrative Setup
+
+### Bootstrapping the first Super Admin
+Since the Control Dashboard is isolated from public signups, you must create the first admin via the CLI:
+```bash
+python backend/scripts/bootstrap_admin.py --email admin@lipi.ai --name "Lead Admin"
+```
+
+### Running the Control Dashboard
+1. Ensure the backend is running (`:8000`).
+2. Start the admin frontend:
+```bash
+cd frontend-control
+npm run dev -- -p 3001
+```
+3. Access at `http://localhost:3001`.
+
 ## Data Services
 
 ### Postgres
@@ -152,6 +175,15 @@ docker compose exec postgres psql -U lipi -d lipi
 ### Valkey
 ```bash
 docker compose exec valkey valkey-cli
+# Monitor analytics cache keys
+valkey-cli KEYS "ctrl:stats:ts:*"
+```
+
+### Analytics Telemetry
+Monitor the aggregation yield and cache hits via the system health endpoint:
+```bash
+# Check timeseries stats directly (requires Admin JWT)
+curl -H "Authorization: Bearer <ADMIN_JWT>" "http://127.0.0.1:8000/api/ctrl/system/stats/timeseries?days=30"
 ```
 
 ### MinIO

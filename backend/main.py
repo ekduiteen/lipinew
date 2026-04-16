@@ -212,12 +212,18 @@ async def _check_http(url: str) -> bool:
         return False
 
 
+from routes import admin_auth, admin_moderation, admin_export, admin_system
+
 app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(leaderboard.router)
 app.include_router(teachers.router)
 app.include_router(dashboard.router)
 app.include_router(phrases.router)
+app.include_router(admin_auth.router)
+app.include_router(admin_moderation.router)
+app.include_router(admin_export.router)
+app.include_router(admin_system.router)
 if heritage is not None:
     app.include_router(heritage.router)
 else:

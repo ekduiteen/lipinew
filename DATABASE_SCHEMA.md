@@ -196,6 +196,22 @@ Human-in-the-loop review queue for extracted correction claims and future rule a
 Current use:
 - correction-derived rules can be staged for approval instead of being blindly trusted
 
+## Admin Control Tables
+
+### `admin_accounts`
+Isolated administrative accounts for LIPI staff. Not part of the teacher user base.
+
+### `admin_audit_logs`
+Detailed audit trail for every administrative action (labeling, exporting, banning).
+
+## Dataset Curation (The Gold Layer)
+
+### `dataset_gold_records`
+The foundational training repository. Contains human-verified transcripts, dialect labels, and quality scores snapshotted from the conversational history.
+
+### `dataset_snapshots`
+Versioned "releases" of training data (e.g., `v1.2-stt-ktm`) with download links to MinIO artifacts.
+
 ## Migrations
 
 Recent important migrations (in order):
@@ -205,6 +221,7 @@ Recent important migrations (in order):
 - `f1c2d8b44a11_training_data_capture_signals.py` — Training data envelopes (raw/derived/high-value)
 - `a7c6e1d9f210_phrase_lab_and_review_queue.py` — Phrase Lab tables + review queue (NEW)
 - `b8d7e4c3f920_heritage_sessions.py` — Heritage mode tables (NEW)
+- `c9d8e7f6a5b4_admin_and_gold_layer.py` — Admin auth, Gold records, and Audit logs (NEW)
 
 ## Practical Rule
 

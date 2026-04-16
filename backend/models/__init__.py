@@ -28,6 +28,8 @@ from .phrases import (
     PhraseMetrics,
 )
 from .heritage import HeritageSession
+from .admin_control import AdminAccount, AdminAuditLog
+from .dataset_gold import GoldRecord, DatasetSnapshot
 
 __all__ = [
     "Base",
@@ -56,4 +58,8 @@ __all__ = [
     "PhraseReconfirmationQueue",
     "PhraseMetrics",
     "HeritageSession",
+    "AdminAccount",
+    "AdminAuditLog",
+    "GoldRecord",
+    "DatasetSnapshot",
 ]

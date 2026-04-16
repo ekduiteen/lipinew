@@ -273,14 +273,16 @@ embedding vector(512)  -- multilingual-e5-large output dim
 ✗ No hold-to-talk button (auto-detect VAD)
 ```
 
-### 4 themes via CSS variables
+### 5 themes via CSS variables — "Pastel Intelligent Minimalism"
 ```css
-/* Root always has data-theme attribute */
+/* Root always has data-theme attribute — set synchronously before first paint */
+/* layout.tsx injects a blocking script that reads localStorage before CSS evaluates */
 /* Orb reads --orb-a, --orb-b, --orb-c */
-[data-theme="dark"]      { --bg: #0a0a0f; --orb-a: #6366f1; ... }
-[data-theme="bright"]    { --bg: #f8f8ff; --orb-a: #818cf8; ... }
-[data-theme="cyberpunk"] { --bg: #000000; --orb-a: #00ff9f; ... }
-[data-theme="traditional"]{ --bg: #1a0f00; --orb-a: #f59e0b; ... }
+[data-theme="pastel"]   { --bg: #F8F6F2; --accent: #2E2E2E; --orb-a: #CBBBEF; ... }  /* DEFAULT */
+[data-theme="warm"]     { --bg: #FAF7F2; --accent: #5C3A1E; --orb-a: #E8C4A0; ... }
+[data-theme="lavender"] { --bg: #F4F0FA; --accent: #6B4FA0; --orb-a: #C8B4F0; ... }
+[data-theme="sage"]     { --bg: #F0F5F0; --accent: #2A5A2A; --orb-a: #B8D8B8; ... }
+[data-theme="dark"]     { --bg: #0F0F14; --accent: #8B7FD4; --orb-a: #6366f1; ... }
 ```
 
 ### Navigation — 6 tabs (expanded from original 4)

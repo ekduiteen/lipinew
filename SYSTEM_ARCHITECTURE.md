@@ -111,10 +111,23 @@ GPU 9 (48GB): Whisper Fine-Tuning (LoRA)
 └─ Output: Dialect-specific Whisper LoRA checkpoints
 ```
 
-**Deployment**: Training server (separate from inference)
-- Non-blocking: doesn't interrupt real-time services
-- Weekly retraining: automatic LoRA updates from accumulated teacher data
 - Results: Hot-swap into GPU 5 during idle periods
+
+---
+
+## The Gold Layer: Expert-in-the-Loop Curation
+
+To ensure high-fidelity STT and LLM performance, LIPI implements a "Gold Standard" curation layer. Raw conversational data is not trusted by default; it must be promoted through the **Control Dashboard**.
+
+### Curation Data Flow
+1. **CAPTURE**: Every teacher turn is logged to `messages` with raw audio in MinIO.
+2. **TRIAGE**: Turns with low STT confidence or high correction value are flagged for review.
+3. **MODERATION**: Internal staff use the **Lipi Control** workbench to human-verify transcripts and dialect labels.
+4. **PROMOTION**: Verified turns are promoted to the `dataset_gold_records` table (The Gold Layer).
+5. **SNAPSHOT**: The Gold records are filtered and bundled into versioned `DatasetSnapshots` (ZIP artifacts) stored in MinIO.
+6. **ANALYTICS**: The **Linguistic Yield Delta** is monitored via a Recharts-powered dashboard, allowing real-time tracking of dialect/register acquisition targets.
+7. **CACHING**: Analytics queries are materialized in Valkey with a 15-minute TTL to ensure sub-10ms dashboard responsiveness.
+8. **TRAINING**: Tier 3 GPUs consume these snapshots for monthly LoRA fine-tuning.
 
 ---
 

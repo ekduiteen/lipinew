@@ -29,6 +29,13 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_admin_token(admin_id: str, scope: str = "moderator") -> str:
+    """Create a high-privilege JWT for the Control plane."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    payload = {"sub": admin_id, "exp": expire, "ctrl": True, "scope": scope}
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 def decode_access_token(token: str) -> str:
     """Decode a JWT and return user_id, or raise HTTPException 401."""
     try:
