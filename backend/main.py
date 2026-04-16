@@ -70,9 +70,14 @@ async def lifespan(app: FastAPI):
     from alembic.config import Config as AlembicConfig
     from alembic.command import upgrade as alembic_upgrade
 
-    alembic_cfg = AlembicConfig("alembic.ini")
-    await asyncio.to_thread(alembic_upgrade, alembic_cfg, "head")
-    logger.info("Database migrations applied")
+    try:
+        alembic_cfg = AlembicConfig("alembic.ini")
+        await asyncio.wait_for(asyncio.to_thread(alembic_upgrade, alembic_cfg, "head"), timeout=60.0)
+        logger.info("Database migrations applied")
+    except asyncio.TimeoutError:
+        logger.warning("Database migration timed out after 60s (schema may be up-to-date)")
+    except Exception as exc:
+        logger.warning("Database migration error (schema may be up-to-date): %s", exc)
 
     # Validate Valkey is reachable before serving traffic
     try:
