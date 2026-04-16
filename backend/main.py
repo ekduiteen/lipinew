@@ -58,47 +58,64 @@ async def _summary_rebuild_loop() -> None:
 async def lifespan(app: FastAPI):
     logger.info("LIPI backend starting (env=%s)", settings.environment)
 
-    # Validate JWT_SECRET is securely configured (defensive check)
-    if not settings.jwt_secret or len(settings.jwt_secret) < 32:
-        raise RuntimeError(
-            "JWT_SECRET is not securely configured. "
-            "Set JWT_SECRET env var to a 32+ character random string."
-        )
-    logger.debug("JWT_SECRET validation passed")
-
-    # Run database migrations (Alembic — replaces Base.metadata.create_all)
-    from alembic.config import Config as AlembicConfig
-    from alembic.command import upgrade as alembic_upgrade
-
     try:
-        alembic_cfg = AlembicConfig("alembic.ini")
-        await asyncio.wait_for(asyncio.to_thread(alembic_upgrade, alembic_cfg, "head"), timeout=60.0)
-        logger.info("Database migrations applied")
-    except asyncio.TimeoutError:
-        logger.warning("Database migration timed out after 60s (schema may be up-to-date)")
-    except Exception as exc:
-        logger.warning("Database migration error (schema may be up-to-date): %s", exc)
+        # Validate JWT_SECRET is securely configured (defensive check)
+        if not settings.jwt_secret or len(settings.jwt_secret) < 32:
+            raise RuntimeError(
+                "JWT_SECRET is not securely configured. "
+                "Set JWT_SECRET env var to a 32+ character random string."
+            )
+        logger.debug("JWT_SECRET validation passed")
 
-    # Validate Valkey is reachable before serving traffic
-    try:
-        await valkey.ping()
-        logger.info("Valkey reachable")
-    except Exception as exc:
-        logger.critical("Valkey unreachable at startup: %s", exc)
-        raise RuntimeError("Cannot start backend without Valkey connection") from exc
+        # Run database migrations (Alembic — replaces Base.metadata.create_all)
+        from alembic.config import Config as AlembicConfig
+        from alembic.command import upgrade as alembic_upgrade
 
-    app.state.http = httpx.AsyncClient(timeout=settings.ml_timeout)
-    summary_task = asyncio.create_task(_summary_rebuild_loop())
-    learning_task = asyncio.create_task(learning_svc.run_worker(app.state.http))
+        try:
+            alembic_cfg = AlembicConfig("alembic.ini")
+            await asyncio.wait_for(asyncio.to_thread(alembic_upgrade, alembic_cfg, "head"), timeout=60.0)
+            logger.info("Database migrations applied")
+        except asyncio.TimeoutError:
+            logger.warning("Database migration timed out after 60s (schema may be up-to-date)")
+        except Exception as exc:
+            logger.warning("Database migration error (schema may be up-to-date): %s", exc)
+
+        # Validate Valkey is reachable before serving traffic
+        try:
+            await valkey.ping()
+            logger.info("Valkey reachable")
+        except Exception as exc:
+            logger.warning("Valkey unhealthy at startup: %s", exc)
+
+        app.state.http = httpx.AsyncClient(timeout=settings.ml_timeout)
+        summary_task = asyncio.create_task(_summary_rebuild_loop())
+        learning_task = asyncio.create_task(learning_svc.run_worker(app.state.http))
+        logger.info("LIPI backend startup complete - ready for requests")
+    except Exception as exc:
+        logger.error("Fatal error during startup: %s", exc, exc_info=True)
+        raise
+
     try:
         yield
     finally:
         logger.info("LIPI backend shutting down")
-        summary_task.cancel()
-        learning_task.cancel()
-        await app.state.http.aclose()
-        await valkey.aclose()
-        await engine.dispose()
+        try:
+            summary_task.cancel()
+            learning_task.cancel()
+        except NameError:
+            pass
+        try:
+            await app.state.http.aclose()
+        except (AttributeError, NameError):
+            pass
+        try:
+            await valkey.aclose()
+        except Exception:
+            pass
+        try:
+            await engine.dispose()
+        except Exception:
+            pass
 
 
 app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
