@@ -9,32 +9,48 @@ export default function LandingPage() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: "2rem",
-        padding: "2rem",
+        gap: "var(--space-6)",
+        padding: "var(--space-8) var(--space-6)",
+        background: "var(--bg)",
       }}
     >
-      <h1 style={{ fontSize: "4rem", fontWeight: 700, letterSpacing: "-0.02em" }}>
-        लिपि
-      </h1>
-      <p style={{ fontSize: "1.25rem", textAlign: "center", maxWidth: "32rem" }}>
-        तपाईं बोल्नुहोस्। लिपि सिक्छ। भाषा बाँच्छ।
-      </p>
-      <p
-        className="text-latin"
-        style={{ fontSize: "1rem", textAlign: "center", maxWidth: "32rem" }}
-      >
-        You speak. LIPI learns. Language lives.
-      </p>
+      <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+        <h1
+          style={{
+            fontFamily: "var(--font-nepali)",
+            fontSize: "clamp(3rem, 12vw, 5.5rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color: "var(--fg)",
+            lineHeight: 1,
+          }}
+        >
+          लिपि
+        </h1>
+        <p
+          style={{
+            fontFamily: "var(--font-nepali)",
+            fontSize: "var(--text-body)",
+            color: "var(--fg)",
+          }}
+        >
+          तपाईं बोल्नुहोस्। लिपि सिक्छ। भाषा बाँच्छ।
+        </p>
+        <p
+          style={{
+            fontFamily: "var(--font-latin)",
+            fontSize: "var(--text-sm)",
+            color: "var(--fg-muted)",
+          }}
+        >
+          You speak. LIPI learns. Language lives.
+        </p>
+      </div>
+
       <Link
         href="/auth"
-        style={{
-          background: "var(--accent)",
-          color: "var(--bg)",
-          padding: "0.875rem 2rem",
-          borderRadius: "var(--radius-full)",
-          fontWeight: 600,
-          textDecoration: "none",
-        }}
+        className="btn-primary"
+        style={{ textDecoration: "none", marginTop: "var(--space-4)" }}
       >
         सुरु गर्नुहोस् · Get started
       </Link>

@@ -401,14 +401,14 @@ export default function TeachPage() {
         <p className={styles.connecting}>{statusText}</p>
         {sessionReady && !micReady && (
           <>
-            <button className={styles.startBtn} onClick={handleStartMic}>
+            <button className="btn-primary" onClick={handleStartMic}>
               माइक सुरु गर्नुहोस् · Start Voice
             </button>
             {micError && <p className={styles.connecting}>{micError}</p>}
           </>
         )}
         {micReady && (
-          <button className={styles.stopBtn} onClick={flushCurrentAudio}>
+          <button className="btn-secondary" onClick={flushCurrentAudio}>
             रोक्नुहोस् र पठाउनुहोस् · Stop And Send
           </button>
         )}

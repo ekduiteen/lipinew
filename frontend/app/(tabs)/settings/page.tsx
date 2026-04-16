@@ -6,10 +6,11 @@ import Orb from "@/components/orb/Orb";
 import styles from "./settings.module.css";
 
 const THEME_META: Record<Theme, { ne: string; en: string }> = {
-  dark:        { ne: "गाढा",       en: "Dark" },
-  bright:      { ne: "उज्यालो",   en: "Bright" },
-  cyberpunk:   { ne: "साइबरपंक", en: "Cyber Punk" },
-  traditional: { ne: "परम्परागत", en: "Traditional" },
+  pastel:   { ne: "पेस्टल",   en: "Pastel Light" },
+  warm:     { ne: "न्यानो",   en: "Warm Cream" },
+  lavender: { ne: "बैजनी",    en: "Lavender Mist" },
+  sage:     { ne: "हरियो",    en: "Sage Air" },
+  dark:     { ne: "अँध्यारो", en: "Dark" },
 };
 
 export default function SettingsPage() {

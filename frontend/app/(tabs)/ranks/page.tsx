@@ -2,18 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { getLeaderboard, type LeaderboardEntry } from "@/lib/api";
-import styles from "./ranks.module.css";
 
 type Period = "weekly" | "monthly" | "all_time";
 
-const PERIOD_LABELS: Record<Period, { ne: string; en: string }> = {
-  weekly:   { ne: "साप्ताहिक", en: "Weekly" },
-  monthly:  { ne: "मासिक",    en: "Monthly" },
-  all_time: { ne: "सबै",      en: "All time" },
-};
+const PERIODS: { id: Period; ne: string; en: string }[] = [
+  { id: "weekly",   ne: "साप्ताहिक", en: "Weekly" },
+  { id: "monthly",  ne: "मासिक",    en: "Monthly" },
+  { id: "all_time", ne: "सबै",      en: "All time" },
+];
 
 export default function RanksPage() {
-  const [period, setPeriod] = useState<Period>("weekly");
+  const [period, setPeriod]   = useState<Period>("weekly");
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,33 +25,77 @@ export default function RanksPage() {
   }, [period]);
 
   return (
-    <div className={styles.root}>
-      <h1 className={styles.titleNe}>शीर्ष शिक्षकहरू</h1>
-      <p className={styles.titleEn}>Top Teachers</p>
+    <div className="page" style={{ padding: "var(--space-8) var(--space-6) var(--space-6)", gap: "var(--space-6)" }}>
 
-      <div className={styles.tabs}>
-        {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+        <h1 style={{ fontFamily: "var(--font-nepali)", fontSize: "var(--text-h1)", fontWeight: 700, color: "var(--fg)" }}>
+          शीर्ष शिक्षकहरू
+        </h1>
+        <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+          Top Teachers
+        </p>
+      </div>
+
+      {/* Period tabs */}
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+        {PERIODS.map((p) => (
           <button
-            key={p}
-            className={`${styles.tab} ${period === p ? styles.tabActive : ""}`}
-            onClick={() => setPeriod(p)}
+            key={p.id}
+            className="btn-secondary"
+            style={{
+              flex: 1,
+              padding: "var(--space-3) var(--space-2)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "2px",
+              borderColor: period === p.id ? "var(--accent)" : undefined,
+              color: period === p.id ? "var(--accent)" : undefined,
+            }}
+            onClick={() => setPeriod(p.id)}
           >
-            <span>{PERIOD_LABELS[p].ne}</span>
-            <span className={styles.tabEn}>{PERIOD_LABELS[p].en}</span>
+            <span style={{ fontFamily: "var(--font-nepali)" }}>{p.ne}</span>
+            <span style={{ fontFamily: "var(--font-latin)", fontSize: "0.65rem", opacity: 0.7 }}>{p.en}</span>
           </button>
         ))}
       </div>
 
+      {/* List */}
       {loading ? (
-        <p className={styles.loading}>लोड हुँदैछ…</p>
+        <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-8)" }}>
+          <div className="spinner" />
+        </div>
       ) : (
-        <ol className={styles.list}>
+        <ol style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
           {entries.map((e) => (
-            <li key={e.rank} className={`${styles.item} ${e.rank <= 3 ? styles.podium : ""}`}>
-              <span className={styles.rank}>{e.rank <= 3 ? ["🥇","🥈","🥉"][e.rank - 1] : e.rank}</span>
-              <span className={styles.avatar}>{e.avatar_initial}</span>
-              <span className={styles.name}>{e.name}</span>
-              <span className={styles.pts}>{e.points.toLocaleString()} pts</span>
+            <li
+              key={e.rank}
+              className="card"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-4)",
+                padding: "var(--space-4) var(--space-5)",
+                borderColor: e.rank <= 3 ? "color-mix(in srgb, var(--accent) 40%, var(--border))" : undefined,
+              }}
+            >
+              <span style={{ width: "2rem", textAlign: "center", fontWeight: 700, color: "var(--accent)", fontSize: "1.1rem" }}>
+                {e.rank <= 3 ? ["🥇", "🥈", "🥉"][e.rank - 1] : e.rank}
+              </span>
+              <span
+                style={{
+                  width: "2.25rem", height: "2.25rem", borderRadius: "50%", flexShrink: 0,
+                  background: "color-mix(in srgb, var(--accent) 20%, var(--bg-elev))",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "1rem", fontWeight: 700, color: "var(--accent)",
+                }}
+              >
+                {e.avatar_initial}
+              </span>
+              <span style={{ flex: 1, color: "var(--fg)", fontSize: "var(--text-sm)" }}>{e.name}</span>
+              <span style={{ color: "var(--fg-muted)", fontSize: "var(--text-sm)", fontFamily: "var(--font-latin)" }}>
+                {e.points.toLocaleString()} pts
+              </span>
             </li>
           ))}
         </ol>

@@ -1,133 +1,117 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import styles from "./heritage.module.css";
-import HoldToRecordButton from "@/components/phrase-lab/HoldToRecordButton";
 
 const MODES = [
-  { id: "STORY", label: "Story / कथा" },
-  { id: "WORD_EXPLANATION", label: "Word / शब्द" },
-  { id: "CULTURE", label: "Culture / संस्कृति" },
-  { id: "PROVERB", label: "Proverb / उखान" },
-  { id: "VARIATION", label: "Dialect / भाषिका" },
+  { id: "STORY",            ne: "कथा",       en: "Story" },
+  { id: "WORD_EXPLANATION", ne: "शब्द",       en: "Word / Phrase" },
+  { id: "CULTURE",          ne: "संस्कृति",  en: "Culture" },
+  { id: "PROVERB",          ne: "उखान",      en: "Proverb" },
+  { id: "VARIATION",        ne: "भाषिका",    en: "Dialect" },
 ];
+
+type Stage = "SELECT" | "PRIMARY" | "FOLLOW_UP" | "DONE";
 
 export default function HeritagePage() {
   const [selectedMode, setSelectedMode] = useState<string>("STORY");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<string | null>(null);
-  const [followUp, setFollowUp] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [stage, setStage] = useState<"SELECT" | "PRIMARY" | "FOLLOW_UP" | "DONE">("SELECT");
-  
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const [sessionId, setSessionId]       = useState<string | null>(null);
+  const [prompt, setPrompt]             = useState<string | null>(null);
+  const [followUp, setFollowUp]         = useState<string | null>(null);
+  const [isRecording, setIsRecording]   = useState(false);
+  const [isLoading, setIsLoading]       = useState(false);
+  const [stage, setStage]               = useState<Stage>("SELECT");
 
-  const getToken = () => typeof window !== 'undefined' ? localStorage.getItem("lipi.token") || "" : "";
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef   = useRef<Blob[]>([]);
 
   const handleStartSession = async (mode: string) => {
-    setSelectedMode(mode);
     setIsLoading(true);
     try {
       const res = await fetch("http://localhost:8000/heritage/sessions/create", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getToken()}`
-        },
-        body: JSON.stringify({ mode })
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ mode }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setSessionId(data.session_id);
-        setPrompt(data.starter_prompt);
-        setStage("PRIMARY");
-      } else {
-        setPrompt("कृपया एउटा कथा सुनाउनुहोस्। (Connection failed, using mock path)");
-        setStage("PRIMARY");
-      }
-    } catch (e) {
-      console.error(e);
-      setPrompt("कृपया एउटा कथा सुनाउनुहोस्। (Connection failed, using mock path)");
+      const data = await res.json();
+      setSessionId(data.session_id ?? null);
+      setPrompt(data.starter_prompt ?? defaultPrompt(mode));
+      setStage("PRIMARY");
+    } catch {
+      setPrompt(defaultPrompt(mode));
       setStage("PRIMARY");
     } finally {
       setIsLoading(false);
     }
   };
 
+  function defaultPrompt(mode: string) {
+    const labels: Record<string, string> = {
+      STORY:            "कृपया एउटा कथा सुनाउनुहोस्।",
+      WORD_EXPLANATION: "कृपया एउटा शब्द वा वाक्यांश व्याख्या गर्नुहोस्।",
+      CULTURE:          "कृपया एउटा सांस्कृतिक चलन वर्णन गर्नुहोस्।",
+      PROVERB:          "कृपया एउटा उखान सुनाउनुहोस्।",
+      VARIATION:        "कृपया यो वाक्य तपाईंको स्थानीय शैलीमा भन्नुहोस्।",
+    };
+    return labels[mode] ?? "कृपया सुरु गर्नुहोस्।";
+  }
+
   const startRecord = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
       mediaRecorderRef.current = mr;
       audioChunksRef.current = [];
-      
       mr.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       mr.onstop = processRecording;
-      
       mr.start();
       setIsRecording(true);
-    } catch (err) {
-      console.error("Mic access denied", err);
-      alert("Microphone access is required in order to save the heritage audio.");
+    } catch {
+      alert("माइक्रोफोन अनुमति आवश्यक छ। / Microphone access is required.");
     }
   };
 
   const stopRecord = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+    if (mediaRecorderRef.current?.state !== "inactive") {
       setIsRecording(false);
       setIsLoading(true);
-      mediaRecorderRef.current.stop(); // This triggers mr.onstop -> processRecording()
+      mediaRecorderRef.current?.stop();
     }
   };
 
   const processRecording = async () => {
     if (!sessionId) {
-      // Mock progression if backend fails
-      if (stage === "PRIMARY") { setFollowUp("सिक्न पाउँदा धेरै खुसी लाग्यो। के अरु थप्न चाहनुहुन्छ? (Mock)"); setStage("FOLLOW_UP"); }
+      if (stage === "PRIMARY") { setFollowUp("थप विवरण दिनुहोस्। / Please share more details."); setStage("FOLLOW_UP"); }
       else setStage("DONE");
       setIsLoading(false);
       return;
     }
 
-    const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-    const formData = new FormData();
-    formData.append("audio_file", blob, "heritage.webm");
-
-    // Close tracks to clear hardware light
-    mediaRecorderRef.current?.stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+    const fd = new FormData();
+    fd.append("audio_file", blob, "heritage.webm");
+    mediaRecorderRef.current?.stream.getTracks().forEach((t) => t.stop());
 
     try {
+      const endpoint = stage === "PRIMARY"
+        ? `http://localhost:8000/heritage/sessions/${sessionId}/submit_primary`
+        : `http://localhost:8000/heritage/sessions/${sessionId}/submit_followup`;
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+
       if (stage === "PRIMARY") {
-        const res = await fetch(`http://localhost:8000/heritage/sessions/${sessionId}/submit_primary`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${getToken()}` },
-          body: formData
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setFollowUp(data.follow_up_prompt);
-          setStage("FOLLOW_UP");
-        } else {
-          setFollowUp("Upload Failed. Please continue.");
-          setStage("FOLLOW_UP");
-        }
-      } else if (stage === "FOLLOW_UP") {
-        const res = await fetch(`http://localhost:8000/heritage/sessions/${sessionId}/submit_followup`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${getToken()}` },
-          body: formData
-        });
-        if (res.ok) {
-          setStage("DONE");
-        } else {
-          setStage("DONE");
-        }
+        const data = res.ok ? await res.json() : {};
+        setFollowUp(data.follow_up_prompt ?? "थप विवरण दिनुहोस्।");
+        setStage("FOLLOW_UP");
+      } else {
+        setStage("DONE");
       }
-    } catch (e) {
-      console.error(e);
-      if (stage === "PRIMARY") { setFollowUp("Network error. Mocking continuation."); setStage("FOLLOW_UP"); }
+    } catch {
+      if (stage === "PRIMARY") { setFollowUp("नेटवर्क त्रुटि।"); setStage("FOLLOW_UP"); }
       else setStage("DONE");
     } finally {
       setIsLoading(false);
@@ -136,22 +120,17 @@ export default function HeritagePage() {
 
   const skipFollowUp = async () => {
     setIsLoading(true);
-    try {
-      if (sessionId) {
-        const formData = new FormData();
-        formData.append("text", "[User Skipped]");
-        await fetch(`http://localhost:8000/heritage/sessions/${sessionId}/submit_followup`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${getToken()}` },
-          body: formData
-        });
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setStage("DONE");
-      setIsLoading(false);
+    if (sessionId) {
+      const fd = new FormData();
+      fd.append("text", "[User Skipped]");
+      await fetch(`http://localhost:8000/heritage/sessions/${sessionId}/submit_followup`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      }).catch(() => {});
     }
+    setStage("DONE");
+    setIsLoading(false);
   };
 
   const reset = () => {
@@ -161,86 +140,113 @@ export default function HeritagePage() {
     setSessionId(null);
   };
 
-  return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <h1>Stories & Heritage</h1>
-        <p>Help preserve language and culture through your stories.</p>
-      </header>
+  const currentMode = MODES.find((m) => m.id === selectedMode);
 
+  return (
+    <div className="page" style={{ alignItems: "center", justifyContent: "center", gap: "var(--space-8)" }}>
+
+      {/* Header */}
+      <div style={{ textAlign: "center" }}>
+        <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-caption)", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--fg-muted)" }}>
+          Heritage
+        </p>
+        <p style={{ fontFamily: "var(--font-nepali)", fontSize: "var(--text-body)", color: "var(--fg)" }}>
+          भाषा र संस्कृति जगाउनुस्
+        </p>
+        <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+          Preserve language and culture through your voice
+        </p>
+      </div>
+
+      {/* Mode selector */}
       {stage === "SELECT" && (
-        <>
-          <div className={styles.modeSelector}>
+        <div style={{ width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", justifyContent: "center" }}>
             {MODES.map((m) => (
               <button
                 key={m.id}
-                className={`${styles.modeButton} ${selectedMode === m.id ? styles.active : ""}`}
+                className={`btn-secondary${selectedMode === m.id ? " active" : ""}`}
+                style={{
+                  padding: "0.5rem 1.1rem",
+                  fontSize: "var(--text-sm)",
+                  borderColor: selectedMode === m.id ? "var(--accent)" : undefined,
+                  color: selectedMode === m.id ? "var(--accent)" : undefined,
+                }}
                 onClick={() => setSelectedMode(m.id)}
               >
-                {m.label}
+                <span style={{ fontFamily: "var(--font-nepali)" }}>{m.ne}</span>
+                <span style={{ fontFamily: "var(--font-latin)", fontSize: "0.7rem", opacity: 0.7, marginLeft: "0.3rem" }}>· {m.en}</span>
               </button>
             ))}
           </div>
-          <div className={styles.actions}>
-            <button 
-              className={styles.finishButton} 
-              onClick={() => handleStartSession(selectedMode)}
-              disabled={isLoading}
-            >
-              {isLoading ? "Loading..." : "Start Sharing"}
-            </button>
-          </div>
-        </>
-      )}
 
-      {stage === "PRIMARY" && prompt && (
-        <>
-          <div className={styles.promptCard}>
-            <p className={styles.promptText}>{prompt}</p>
-          </div>
-          <div className={styles.recordingArea}>
-            <HoldToRecordButton 
-              isRecording={isRecording}
-              onStartRecord={startRecord}
-              onStopRecord={stopRecord}
-              disabled={isLoading}
-            />
-          </div>
-        </>
-      )}
-
-      {stage === "FOLLOW_UP" && followUp && (
-        <>
-          <div className={styles.promptCard}>
-            <p className={styles.promptText}>{followUp}</p>
-          </div>
-          <div className={styles.recordingArea}>
-            <HoldToRecordButton 
-              isRecording={isRecording}
-              onStartRecord={startRecord}
-              onStopRecord={stopRecord}
-              disabled={isLoading}
-            />
-          </div>
-          <div className={styles.actions}>
-            <button className={styles.finishButton} onClick={skipFollowUp} style={{ background: "transparent", color: "var(--accent)", border: "1px solid var(--accent)", width: "100%", maxWidth: "300px" }}>
-              Skip Follow-Up
-            </button>
-          </div>
-        </>
-      )}
-
-      {stage === "DONE" && (
-        <div className={styles.promptCard}>
-          <h2>Thank you! / धन्यवाद!</h2>
-          <p style={{ marginTop: "1rem" }}>Your contribution has been preserved.</p>
-          <div className={styles.actions} style={{ marginTop: "2rem" }}>
-            <button className={styles.finishButton} onClick={reset}>
-              Share Another Story
-            </button>
-          </div>
+          <button
+            className="btn-primary"
+            disabled={isLoading}
+            onClick={() => handleStartSession(selectedMode)}
+          >
+            {isLoading ? "लोड हुँदैछ…" : "सुरु गर्नुहोस् · Start sharing"}
+          </button>
         </div>
       )}
+
+      {/* Prompt card */}
+      {(stage === "PRIMARY" || stage === "FOLLOW_UP") && (
+        <div className="card fade-in" style={{ width: "100%", maxWidth: 420, textAlign: "center", padding: "var(--space-8) var(--space-6)" }}>
+          {currentMode && (
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <span className="chip">{currentMode.ne} · {currentMode.en}</span>
+            </div>
+          )}
+          <p style={{ fontFamily: "var(--font-nepali)", fontSize: "var(--text-body)", color: "var(--fg)", lineHeight: 1.7 }}>
+            {stage === "PRIMARY" ? prompt : followUp}
+          </p>
+          {stage === "FOLLOW_UP" && (
+            <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-sm)", color: "var(--fg-muted)", marginTop: "var(--space-2)" }}>
+              Follow-up question
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Mic control */}
+      {(stage === "PRIMARY" || stage === "FOLLOW_UP") && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--space-4)" }}>
+          <button
+            className={`btn-mic${isRecording ? " recording" : ""}`}
+            disabled={isLoading}
+            onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); startRecord(); }}
+            onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); stopRecord(); }}
+            onPointerCancel={stopRecord}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {isLoading ? "⏳" : isRecording ? "🎙️" : "🎤"}
+          </button>
+          <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+            {isLoading ? "पठाउँदैछ…" : isRecording ? "Release to send" : "Hold to record"}
+          </p>
+
+          {stage === "FOLLOW_UP" && !isRecording && !isLoading && (
+            <button className="btn-text" onClick={skipFollowUp}>
+              थप नसोध्नुस् · Skip follow-up
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Done */}
+      {stage === "DONE" && (
+        <div className="card fade-in" style={{ width: "100%", maxWidth: 420, textAlign: "center", padding: "var(--space-8) var(--space-6)" }}>
+          <p style={{ fontFamily: "var(--font-nepali)", fontSize: "var(--text-h2)", marginBottom: "var(--space-3)" }}>धन्यवाद!</p>
+          <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-body)", color: "var(--fg-muted)", marginBottom: "var(--space-6)" }}>
+            Your voice has been preserved for future generations.
+          </p>
+          <button className="btn-primary" onClick={reset}>
+            अर्को सुनाउनुस् · Share another
+          </button>
+        </div>
+      )}
+
     </div>
   );
 }
