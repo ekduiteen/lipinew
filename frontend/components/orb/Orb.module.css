@@ -23,33 +23,37 @@
   transition: transform 0.4s ease, box-shadow 0.4s ease;
 }
 
+/* idle: soft lavender breathing */
 .orb[data-state="idle"] {
-  animation: breathe 4s ease-in-out infinite;
+  animation: breathe 3.5s ease-in-out infinite;
   box-shadow:
-    0 0 40px color-mix(in srgb, var(--orb-a) 30%, transparent),
-    0 0 80px color-mix(in srgb, var(--orb-b) 15%, transparent);
+    0 0 32px color-mix(in srgb, var(--orb-a) 28%, transparent),
+    0 0 64px color-mix(in srgb, var(--orb-b) 12%, transparent);
 }
 
+/* listening: sky expansion */
 .orb[data-state="listening"] {
   box-shadow:
-    0 0 60px color-mix(in srgb, var(--orb-a) 60%, transparent),
-    0 0 120px color-mix(in srgb, var(--orb-b) 30%, transparent);
-  animation: none;
-  transform: scale(1.05);
+    0 0 48px color-mix(in srgb, var(--pastel-sky, #D7E8FF) 55%, transparent),
+    0 0 96px color-mix(in srgb, var(--orb-b) 22%, transparent);
+  animation: breathe-fast 1.2s ease-in-out infinite;
+  transform: scale(1.04);
 }
 
+/* thinking: butter + lavender drift */
 .orb[data-state="thinking"] {
-  animation: spin 2.4s linear infinite;
+  animation: spin 3s linear infinite;
   box-shadow:
-    0 0 50px color-mix(in srgb, var(--orb-b) 40%, transparent),
-    0 0 100px color-mix(in srgb, var(--orb-c) 20%, transparent);
+    0 0 40px color-mix(in srgb, var(--pastel-butter, #F8EDB8) 40%, transparent),
+    0 0 80px color-mix(in srgb, var(--orb-a) 18%, transparent);
 }
 
+/* speaking: sage ripple */
 .orb[data-state="speaking"] {
-  animation: pulse 0.6s ease-in-out infinite alternate;
+  animation: pulse 0.7s ease-in-out infinite alternate;
   box-shadow:
-    0 0 55px color-mix(in srgb, var(--orb-a) 50%, transparent),
-    0 0 110px color-mix(in srgb, var(--orb-c) 25%, transparent);
+    0 0 44px color-mix(in srgb, var(--pastel-sage, #C8DEC8) 48%, transparent),
+    0 0 88px color-mix(in srgb, var(--orb-c) 20%, transparent);
 }
 
 /* ─── Gradient fill ─────────────────────────────────────────────────────── */
@@ -108,7 +112,12 @@
 
 @keyframes breathe {
   0%, 100% { transform: scale(1); }
-  50%       { transform: scale(1.06); }
+  50%       { transform: scale(1.05); }
+}
+
+@keyframes breathe-fast {
+  0%, 100% { transform: scale(1.04); }
+  50%       { transform: scale(1.09); }
 }
 
 @keyframes spin {

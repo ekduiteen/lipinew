@@ -3,12 +3,14 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 4.5rem;
-  background: var(--bg-elev);
+  height: 72px;
+  background: var(--bg-frost);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--border);
   display: flex;
   z-index: 50;
-  safe-area-inset-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .tab {
@@ -17,27 +19,55 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.1rem;
+  gap: 3px;
   text-decoration: none;
-  color: var(--fg-muted);
-  transition: color 0.15s;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  color: var(--fg-subtle);
+  transition: color var(--duration-micro) ease;
+  position: relative;
+  padding: 8px 0;
 }
 
-.tab.active { color: var(--accent); }
-.tab:hover:not(.active) { color: var(--fg); }
+.tab::after {
+  content: '';
+  position: absolute;
+  bottom: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--duration-micro) ease;
+}
 
-.icon { font-size: 1.3rem; line-height: 1; }
+.tab.active {
+  color: var(--fg);
+}
+
+.tab.active::after {
+  opacity: 1;
+}
+
+.tab:hover:not(.active) {
+  color: var(--fg-muted);
+}
+
+.icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  transition: transform var(--duration-micro) ease;
+}
+
+.tab.active .icon {
+  transform: translateY(-1px);
+}
 
 .labelNe {
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-family: var(--font-nepali);
   font-weight: 500;
+  line-height: 1;
 }
 
 .labelEn {
-  font-size: 0.6rem;
-  font-family: var(--font-latin);
-  color: inherit;
-  opacity: 0.65;
+  display: none;
 }
