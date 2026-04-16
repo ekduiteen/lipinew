@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import styles from "./BottomNav.module.css";
 
 const TABS = [
-  { href: "/home",     labelNe: "गृह",    labelEn: "Home",     icon: "⌂" },
-  { href: "/teach",    labelNe: "सिकाउ",  labelEn: "Teach",    icon: "◎" },
-  { href: "/ranks",    labelNe: "रैंक",   labelEn: "Ranks",    icon: "⬡" },
-  { href: "/settings", labelNe: "सेटिङ", labelEn: "Settings", icon: "⚙" },
+  { href: "/home",       labelNe: "गृह",       labelEn: "Home",       icon: "⌂" },
+  { href: "/teach",      labelNe: "सिकाउ",     labelEn: "Teach",      icon: "◎" },
+  { href: "/heritage",   labelNe: "विरासत",      labelEn: "Heritage",   icon: "📖" },
+  { href: "/phrase-lab", labelNe: "वाक्यांश",    labelEn: "Phrases",    icon: "💬" },
+  { href: "/ranks",      labelNe: "रैंक",      labelEn: "Ranks",      icon: "⬡" },
+  { href: "/settings",   labelNe: "सेटिङ",    labelEn: "Settings",   icon: "⚙" },
 ] as const;
 
 export default function BottomNav() {

@@ -18,8 +18,15 @@ from cache import valkey
 from config import settings
 from db.connection import engine, SessionLocal
 from models.points import TeacherPointsSummary
-from routes import auth, sessions, leaderboard, teachers, dashboard
+import models.phrases  # Load phrase laboratory models
+from routes import auth, sessions, leaderboard, teachers, dashboard, phrases
 from services import learning as learning_svc
+
+try:
+    import models.heritage  # type: ignore[import-not-found]  # Load heritage models
+    from routes import heritage
+except ModuleNotFoundError:
+    heritage = None
 
 logging.basicConfig(
     level=settings.log_level,
@@ -190,6 +197,11 @@ app.include_router(sessions.router)
 app.include_router(leaderboard.router)
 app.include_router(teachers.router)
 app.include_router(dashboard.router)
+app.include_router(phrases.router)
+if heritage is not None:
+    app.include_router(heritage.router)
+else:
+    logger.warning("Heritage routes disabled: models.heritage module is missing")
 
 # ─── Rate limiting config ─────────────────────────────────────────────────────
 # The limiter is registered and exception handler set up above

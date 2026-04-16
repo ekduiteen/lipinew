@@ -19,7 +19,7 @@ export interface WSHandlers {
   onTTSEnd: () => void;
   onEmptyAudio: () => void;
   onError: (err: Event) => void;
-  onClose: () => void;
+  onClose: (ev: CloseEvent) => void;
 }
 
 function resolveWsBase(): string {
@@ -58,6 +58,7 @@ export class LipiWebSocket {
       const { ws_token } = (await tokenRes.json()) as { ws_token: string };
 
       const url = `${WS_BASE}/ws/session/${sessionId}?token=${encodeURIComponent(ws_token)}`;
+      console.log("Opening WebSocket:", { sessionId, userId, url });
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
       this.ws.onopen = () => this.handlers.onOpen?.();
@@ -76,7 +77,13 @@ export class LipiWebSocket {
 
   sendAudio(bytes: ArrayBuffer | Uint8Array): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      const size = bytes instanceof ArrayBuffer ? bytes.byteLength : bytes.byteLength;
+      console.log("Sending audio frame:", { size });
       this.ws.send(bytes);
+    } else {
+      console.warn("Skipped audio send because WebSocket is not open", {
+        readyState: this.ws?.readyState,
+      });
     }
   }
 

@@ -32,6 +32,8 @@ class CorrectionEvent(Base):
     confidence_after: Mapped[float | None] = mapped_column(Float, nullable=True)
     topic: Mapped[str | None] = mapped_column(Text, nullable=True)
     language_key: Mapped[str] = mapped_column(Text, default="ne")
+    source_audio_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -146,6 +148,32 @@ class UsageRule(Base):
     rule_text: Mapped[str] = mapped_column(Text)
     source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    source_audio_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+class ReviewQueueItem(Base):
+    __tablename__ = "review_queue_items"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    source_audio_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    teacher_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("teaching_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    extracted_claim: Mapped[str] = mapped_column(Text)
+    extraction_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    model_source: Mapped[str] = mapped_column(Text, default="gemma_audio_v1")
+    status: Mapped[str] = mapped_column(Text, default="pending_review") # pending_review, approved, rejected, needs_more_context
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

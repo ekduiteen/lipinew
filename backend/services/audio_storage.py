@@ -53,6 +53,28 @@ async def store_teacher_audio(
         return f"capture_pending://{object_name}"
 
 
+async def store_phrase_audio(
+    *,
+    audio_bytes: bytes,
+    user_id: str,
+    phrase_id: str,
+    suffix: str | None = None,
+) -> str | None:
+    if not audio_bytes:
+        return None
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    extra = f"-{suffix}" if suffix else ""
+    object_name = (
+        f"phrase-lab-audio/{user_id}/{phrase_id}/"
+        f"{timestamp}-{uuid.uuid4().hex}{extra}.bin"
+    )
+    try:
+        await asyncio.to_thread(_put_object, object_name, audio_bytes)
+        return object_name
+    except Exception:
+        return f"capture_pending://{object_name}"
+
+
 def _normalize_object_name(audio_path: str) -> str:
     if audio_path.startswith("capture_pending://"):
         return audio_path.removeprefix("capture_pending://")

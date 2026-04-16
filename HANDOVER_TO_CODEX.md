@@ -97,6 +97,7 @@ The backend now runs a more explicit multi-engine loop:
 - `hearing.py`
 - `turn_interpreter.py`
 - `input_understanding.py`
+- `audio_understanding.py`
 - `teacher_modeling.py`
 - `memory_service.py`
 - `correction_graph.py`
@@ -113,6 +114,15 @@ The backend now runs a more explicit multi-engine loop:
 - `response_cleanup.py`
 
 This means the turn path is no longer just STT → prompt → LLM.
+
+There are now two capture lanes:
+- `Teach`: open-ended conversation loop
+- `Phrase Lab`: structured phrase and variation recording
+
+The hybrid pivot is intentionally safe:
+- Whisper/hearing still anchors the live path
+- `audio_understanding.py` is a sidecar enrichment layer
+- if the sidecar fails or times out, the system falls back cleanly instead of blocking the turn
 
 ### Speaker embeddings
 - ML service now exposes `/speaker-embed`
@@ -132,6 +142,7 @@ This means the turn path is no longer just STT → prompt → LLM.
 - teacher signal logging is live
 - Newar-primary teacher targeting is live
 - anti-parroting behavior improved for “you choose what to learn” moments
+- correction-derived rules now start moving through a review queue instead of being blindly trusted
 
 ### Voice stack
 - OmniVoice was removed from the live path

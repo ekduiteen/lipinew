@@ -125,6 +125,45 @@ async def enqueue_turn(
         "behavior_policy": behavior_policy or {},
         "audio_path": audio_path,
         "target_language": target_language or "",
+        "enqueued_at": datetime.now(timezone.utc).isoformat(),
+        "job_type": "turn"
+    }
+    await valkey.lpush(_QUEUE_KEY, json.dumps(job))
+
+
+async def enqueue_phrase_submission(
+    *,
+    submission_id: str,
+    user_id: str,
+    session_id: str | None,
+    phrase_en: str,
+    phrase_ne: str,
+    teacher_text: str,
+    stt_result: dict,
+    audio_path: str | None = None,
+    target_language: str | None = None,
+) -> None:
+    """Persist a phrase lab submission to Valkey for vocabulary extraction."""
+    # We bypass the conversational filters and enqueue directly
+    if len(teacher_text.strip()) < 2:
+        logger.info("Skipping phrase learning enqueue: text too short")
+        return
+
+    job = {
+        "job_id": str(uuid.uuid4()),
+        "job_type": "phrase",
+        "submission_id": submission_id,
+        "session_id": session_id or "",
+        "user_id": user_id,
+        "teacher_text": teacher_text,
+        "lipi_response": f"[Phrase Prompt]: {phrase_en} -> {phrase_ne}",
+        "stt_result": stt_result,
+        "hearing_result": {},
+        "turn_interpretation": {"active_topic": "phrase_lab"},
+        "input_understanding": {"primary_language": "ne", "topic": "phrase_lab"},
+        "behavior_policy": {},
+        "audio_path": audio_path,
+        "target_language": target_language or "",
         "attempt": 0,
         "enqueued_at": datetime.now(timezone.utc).isoformat(),
     }

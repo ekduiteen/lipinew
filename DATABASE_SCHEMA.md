@@ -156,6 +156,46 @@ Current status:
 - lightweight incremental cluster assignment is live via `dialect_cluster_id`
 - intended next phase is stronger clustering analysis and later dialect-aware routing
 
+## Phrase Lab Tables
+
+### `phrases`
+Structured prompt library for phrase capture.
+
+### `phrase_generation_batches`
+Batch provenance for generated phrase sets.
+
+### `phrase_submission_groups`
+Tracks the lifecycle of one phrase prompt across primary + variation capture.
+
+### `phrase_submissions`
+Stores structured phrase-lab recordings plus derived language, dialect, prosody, and quality signals.
+
+### `phrase_skip_events`
+Tracks skipped prompts so selection can avoid repetition.
+
+### `phrase_reconfirmation_queue`
+Schedules phrases that should be re-asked after uncertain or low-confidence capture.
+
+### `phrase_metrics`
+Aggregate coverage and quality counters for phrase prompts.
+
+## Heritage Tables
+
+### `heritage_sessions`
+Isolates long-form cultural/language storytelling and explanation from standard daily conversational learning.
+
+- **Purpose**: Stores the chosen contribution mode (e.g. Story, Word Explanation) and the resulting LLM prompt.
+- **Why**: Protects `teaching_sessions` performance metrics from being artificially skewed by long heritage answers.
+- **Includes**: Primary recording paths and follow-up paths.
+
+## Review / Approval Tables
+
+### `review_queue_items`
+Human-in-the-loop review queue for extracted correction claims and future rule approval.
+
+Current use:
+- correction-derived rules can be staged for approval instead of being blindly trusted
+
 ## Migrations
 
 Recent important migrations:

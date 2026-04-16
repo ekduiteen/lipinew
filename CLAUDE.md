@@ -63,10 +63,11 @@ python -m vllm.entrypoints.openai.api_server \
 | Mobile (Phase 2) | Flutter | iOS + Android from one codebase |
 | Backend | FastAPI (Python 3.11) | Async, fast, GPU-friendly ecosystem |
 | LLM inference | vLLM (OpenAI-compatible API) | Best throughput for self-hosted |
-| LLM model | Qwen2.5-14B-Instruct-AWQ | 201 languages, fits single L40S with AWQ quantization |
-| STT | faster-whisper large-v3 | 99 languages, dialect LoRA support |
-| TTS | OmniVoice | Multilingual, Nepali voices, open source |
-| TTS (legacy) | facebook/mms-tts-npi | Phase 1 fallback if needed |
+| LLM model | Gemma 4 (current live) | Running on remote host behind OpenAI-compatible shim on `:8100` |
+| LLM model | Qwen2.5-14B-Instruct-AWQ | Target spec (201 languages, fits single L40S); not yet deployed |
+| STT | faster-whisper large-v3 | 99 languages, VAD built-in, dialect LoRA support |
+| TTS | Piper | Current live (language-aware routing: Nepali `ne_NP-google-medium`, English separate) |
+| TTS (planned) | OmniVoice | Was Phase 1, deprioritized in favor of Piper |
 | Database | PostgreSQL 16 + pgvector | Structured data + speaker embeddings |
 | Cache / Queues | **Valkey** (NOT Redis — Redis is SSPL) | BSD-3 licensed Redis fork |
 | Object storage | MinIO | S3-compatible, self-hosted, AGPL |
@@ -79,70 +80,96 @@ python -m vllm.entrypoints.openai.api_server \
 
 ---
 
-## Project Structure
+## Project Structure (Updated 2026-04-17)
 
 ```
 lipi/
 ├── CLAUDE.md                    ← you are here
+├── DEV_ONBOARDING.md            ← living architecture guide (more detailed)
+├── HANDOVER_TO_CODEX.md         ← handover notes + known issues
 ├── docker-compose.yml
 ├── Caddyfile
 ├── .env.example
 │
-├── frontend/                    # Next.js PWA
+├── frontend/                    # Next.js 14 PWA (App Router)
 │   ├── app/
-│   │   ├── (auth)/
-│   │   │   └── page.tsx         # Landing + Google/Phone auth
-│   │   ├── onboarding/
-│   │   │   └── page.tsx         # 7-question flow
-│   │   ├── home/
-│   │   │   └── page.tsx         # Dashboard + stats
-│   │   ├── teach/
-│   │   │   └── page.tsx         # Orb + voice conversation
-│   │   ├── ranks/
-│   │   │   └── page.tsx         # Leaderboards
-│   │   └── settings/
-│   │       └── page.tsx         # Theme + prefs
+│   │   ├── auth/page.tsx        # Google OAuth sign-in
+│   │   ├── onboarding/page.tsx  # 7-question bilingual onboarding
+│   │   ├── (tabs)/              # 6-tab navigation layout
+│   │   │   ├── home/page.tsx           # Dashboard + stats
+│   │   │   ├── teach/page.tsx          # Orb + WebSocket conversation
+│   │   │   ├── phrase-lab/page.tsx     # Structured phrase capture (NEW)
+│   │   │   ├── heritage/page.tsx       # Heritage/dialect capture (NEW)
+│   │   │   ├── ranks/page.tsx          # Leaderboard
+│   │   │   └── settings/
+│   │   │       ├── page.tsx            # Theme picker + dashboard link
+│   │   │       └── dashboard/page.tsx  # System health API
+│   │   └── api/                 # Next.js API routes (proxy + auth)
 │   ├── components/
-│   │   ├── orb/                 # Animated orb (4 states)
-│   │   ├── theme/               # Theme context + CSS vars
-│   │   └── ui/                  # Shared components
+│   │   ├── orb/Orb.tsx          # 4-state animated orb
+│   │   ├── theme/ThemeProvider.tsx
+│   │   ├── ui/BottomNav.tsx     # 6-tab nav (was 4)
+│   │   └── phrase-lab/          # Phrase Lab components (NEW)
 │   └── lib/
-│       ├── websocket.ts         # WS client
+│       ├── websocket.ts         # WebSocket client
 │       └── api.ts               # REST client
 │
-├── backend/                     # FastAPI
-│   ├── main.py
+├── backend/                     # FastAPI (Python 3.11)
+│   ├── main.py                  # App factory, route registration
+│   ├── config.py                # pydantic-settings
+│   ├── cache.py                 # Valkey client
+│   ├── jwt_utils.py
+│   ├── rate_limit.py
 │   ├── routes/
 │   │   ├── auth.py
-│   │   ├── sessions.py          # WS endpoint lives here
+│   │   ├── sessions.py          # Core WS conversation + session mgmt
 │   │   ├── teachers.py
-│   │   └── leaderboard.py
-│   ├── services/
-│   │   ├── llm.py               # vLLM client + fallback
-│   │   ├── stt.py               # STT client + fallback
-│   │   ├── tts.py               # TTS client + fallback
-│   │   ├── prompt_builder.py    # Dynamic system prompt assembly
-│   │   └── points.py            # Points calculation + badge checks
-│   ├── models/                  # SQLAlchemy ORM models
-│   │   ├── user.py
-│   │   ├── session.py
-│   │   ├── points.py
-│   │   ├── badge.py
-│   │   └── tone_profile.py
-│   └── db/
-│       ├── connection.py
-│       └── migrations/
+│   │   ├── leaderboard.py
+│   │   ├── dashboard.py         # System health + data overview
+│   │   ├── phrases.py           # Phrase Lab REST API (NEW)
+│   │   └── heritage.py          # Heritage REST API (NEW)
+│   ├── services/                # ~30 service modules covering all logic
+│   │   ├── llm.py, stt.py, tts.py  # Model API clients
+│   │   ├── prompt_builder.py
+│   │   ├── points.py, badges.py, learning.py
+│   │   ├── hearing.py, turn_interpreter.py, input_understanding.py
+│   │   ├── teacher_modeling.py, memory_service.py
+│   │   ├── behavior_policy.py, response_orchestrator.py, personality.py
+│   │   ├── curriculum.py, diversity.py
+│   │   ├── correction_graph.py, phrase_pipeline.py, speaker_embeddings.py
+│   │   ├── heritage_prompt.py   # Heritage mode prompt generation (NEW)
+│   │   └── [+17 more services detailed in DEV_ONBOARDING.md]
+│   ├── models/                  # SQLAlchemy 2.0 ORM
+│   │   ├── user.py, session.py, points.py, badge.py, message.py
+│   │   ├── curriculum.py, intelligence.py, phrases.py
+│   │   └── heritage.py          # HeritageSession ORM (NEW)
+│   ├── db/
+│   │   ├── connection.py
+│   │   ├── init_db.py
+│   │   └── [DO NOT EDIT: use Alembic migrations]
+│   ├── alembic/                 # Schema version control (6 migrations)
+│   │   └── versions/
+│   │       ├── 91ba4c4fe766_initial_schema.py
+│   │       ├── a7c6e1d9f210_phrase_lab_and_review_queue.py
+│   │       ├── b8d7e4c3f920_heritage_sessions.py  (NEW)
+│   │       └── [3 more intelligence + curriculum migrations]
+│   ├── tests/                   # pytest suite (16 test files)
+│   └── dependencies/
+│       └── auth.py              # JWT helpers
 │
-├── ml/                          # STT + TTS microservice (GPU 0-1)
-│   ├── main.py
-│   ├── stt.py                   # faster-whisper endpoints
-│   └── tts.py                   # OmniVoice TTS endpoints
+├── ml/                          # GPU microservice (STT + TTS)
+│   ├── main.py                  # FastAPI /health /stt /tts /speaker-embed
+│   ├── stt.py                   # faster-whisper large-v3
+│   ├── speaker_embed.py         # acoustic_signature_v1 (512-d)
+│   ├── tts.py, tts_piper.py, tts_coqui.py, tts_provider.py
+│   ├── requirements.txt
+│   └── Dockerfile
 │
-└── pipeline/                    # Monthly training (off-peak)
-    ├── prepare_data.py
-    ├── train_lora.py
-    ├── eval.py
-    └── announce.py
+└── pipeline/                    # Monthly LoRA fine-tuning (PHASE 4 — not yet built)
+    ├── prepare_data.py          # TBD
+    ├── train_lora.py            # TBD
+    ├── eval.py                  # TBD
+    └── announce.py              # TBD
 ```
 
 ---
@@ -256,10 +283,17 @@ embedding vector(512)  -- multilingual-e5-large output dim
 [data-theme="traditional"]{ --bg: #1a0f00; --orb-a: #f59e0b; ... }
 ```
 
-### Navigation — 4 tabs
+### Navigation — 6 tabs (expanded from original 4)
 ```
-[Home]  [Teach]  [Ranks]  [Settings]
+[Home]  [Teach]  [Heritage]  [Phrase Lab]  [Ranks]  [Settings]
 ```
+
+**Update:** Product now has two structured data-collection lanes:
+- **Teach**: Open-ended conversation (original core)
+- **Heritage**: Dialect/register capture via guided prompts (NEW)
+- **Phrase Lab**: Structured phrase + variation recording (NEW)
+
+All remain data-collection first, with teacher retention as the north star.
 
 ### Onboarding — 7 questions, bilingual
 ```

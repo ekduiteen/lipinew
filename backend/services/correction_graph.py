@@ -8,7 +8,12 @@ import uuid
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.intelligence import CorrectionEvent, KnowledgeConfidenceHistory, UsageRule
+from models.intelligence import (
+    CorrectionEvent,
+    KnowledgeConfidenceHistory,
+    UsageRule,
+    ReviewQueueItem,
+)
 from models.message import Message
 
 
@@ -76,39 +81,54 @@ async def record_correction_event(
         confidence_after=confidence_after,
         topic=topic,
         language_key=language_key,
+        source_audio_path=teacher_message.audio_path,
+        is_approved=False
     )
     db.add(event)
     await db.flush()
 
-    db.add(
-        KnowledgeConfidenceHistory(
-            id=str(uuid.uuid4()),
-            teacher_id=teacher_id,
-            session_id=session_id,
-            correction_event_id=event.id,
-            knowledge_key=topic or "correction",
-            language_key=language_key,
-            previous_confidence=float(confidence_before or 0.3),
-            new_confidence=float(confidence_after or 0.8),
-            change_reason="teacher_correction",
-            is_contradiction_hook=True,
-        )
+    # Create UsageRule but mark it as NOT approved yet
+    rule = UsageRule(
+        id=str(uuid.uuid4()),
+        teacher_id=teacher_id,
+        session_id=session_id,
+        correction_event_id=event.id,
+        topic_key=topic,
+        language_key=language_key,
+        rule_type="correction_rule",
+        rule_text=corrected_claim[:500],
+        source_text=wrong_message.text[:500] if wrong_message else None,
+        confidence=float(confidence_after or 0.8),
+        source_audio_path=teacher_message.audio_path,
+        is_approved=False
     )
-    db.add(
-        UsageRule(
-            id=str(uuid.uuid4()),
-            teacher_id=teacher_id,
-            session_id=session_id,
-            correction_event_id=event.id,
-            topic_key=topic,
-            language_key=language_key,
-            rule_type="correction_rule",
-            rule_text=corrected_claim[:500],
-            source_text=wrong_message.text[:500] if wrong_message else None,
-            confidence=float(confidence_after or 0.8),
-        )
-    )
+    db.add(rule)
     await db.flush()
+
+    # Route to HITL Review Queue instead of immediately trusting
+    review_item = ReviewQueueItem(
+        id=str(uuid.uuid4()),
+        source_audio_path=teacher_message.audio_path,
+        source_transcript=teacher_message.text,
+        teacher_id=teacher_id,
+        session_id=session_id,
+        extracted_claim=corrected_claim[:500],
+        extraction_metadata={
+            "correction_event_id": event.id,
+            "usage_rule_id": rule.id,
+            "topic": topic,
+            "wrong_claim": wrong_message.text if wrong_message else ""
+        },
+        confidence=float(confidence_after or 0.8),
+        model_source="hybrid_input_understanding",
+        status="pending_review"
+    )
+    db.add(review_item)
+    await db.flush()
+    
+    # We DO NOT generate a KnowledgeConfidenceHistory bump here anymore
+    # That happens asynchronously if the Admin Review Queue approves the item.
+
     return event
 
 

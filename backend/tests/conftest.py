@@ -48,6 +48,7 @@ async def db_engine():
     import models.badge    # noqa: F401
     import models.curriculum  # noqa: F401
     import models.intelligence  # noqa: F401
+    import models.phrases  # noqa: F401
 
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:

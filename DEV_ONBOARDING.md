@@ -1,7 +1,7 @@
 # LIPI — Developer Onboarding Guide
 
 > **Living document. Update rule: every PR that adds a service, endpoint, pattern, or architectural decision MUST include a corresponding update to this file. No exceptions. If you shipped it and didn't document it here, it didn't happen.**
-> Last synced: 2026-04-16 — Multi-engine brain live; structured training-data capture live; async speaker-embedding capture path implemented with ML `/speaker-embed` + backend learning worker storage.
+> Last synced: 2026-04-16 — Multi-engine brain live; hybrid audio-understanding sidecar added; Phrase Lab structured capture lane added; async speaker-embedding path implemented with ML `/speaker-embed` + backend learning worker storage.
 
 > **Docs rule:** this file, `README.md`, `OPERATIONS.md`, `CLAUDE.md`, `DATABASE_SCHEMA.md`, `PHASE_ROADMAP.md`, and `HANDOVER_TO_CODEX.md` are the canonical docs. Do not add another status/quickstart/handover summary file unless there is a genuinely new audience and no existing canonical doc fits.
 
@@ -18,6 +18,10 @@ LIPI is **not** a chatbot. LIPI is a **community data-collection platform disgui
 
 Every conversation is structured data collection. The student–teacher dynamic is the data strategy. Monthly LoRA fine-tuning on that data is the product flywheel.
 
+There are now two collection lanes:
+- `Teach`: open-ended teacher/student conversation
+- `Phrase Lab`: structured phrase and variation capture for cleaner supervised language data
+
 **If a feature doesn't serve data collection or teacher retention, it doesn't ship.**
 
 ---
@@ -32,91 +36,132 @@ lipi/
 ├── docker-compose.yml          ← full stack definition
 ├── Caddyfile                   ← reverse proxy config
 ├── .env.example                ← all env vars with comments
-├── init-db.sql                 ← PostgreSQL schema + pgvector + badge seed
+├── init-db.sql                 ← Legacy PostgreSQL seed (use Alembic migrations)
 │
 ├── ml/                         ← GPU microservice (STT + TTS)
 │   ├── main.py                 ← FastAPI app, /health /stt /tts /speaker-embed /models/info
-│   ├── stt.py                  ← STTService (faster-whisper large-v3)
-│   ├── speaker_embed.py        ← async-only 512-d acoustic signature extractor
-│   ├── tts.py                  ← TTSService (Piper with language-based voice routing)
+│   ├── stt.py                  ← faster-whisper large-v3 with VAD
+│   ├── speaker_embed.py        ← 512-d acoustic signature extractor (acoustic_signature_v1)
+│   ├── tts.py                  ← TTS routing logic
+│   ├── tts_piper.py            ← Piper TTS provider (current live TTS)
+│   ├── tts_coqui.py            ← Coqui TTS provider (alternative, not currently used)
+│   ├── tts_provider.py         ← Abstract TTS provider interface
 │   ├── requirements.txt
 │   └── Dockerfile
 │
 ├── backend/                    ← FastAPI REST + WebSocket
 │   ├── main.py                 ← app factory, lifespan, routes, 5-min summary task
-│   ├── config.py               ← all settings from env (pydantic-settings)
+│   ├── config.py               ← pydantic-settings from env
 │   ├── cache.py                ← Valkey async client (NOT redis)
+│   ├── jwt_utils.py            ← JWT creation/validation
+│   ├── rate_limit.py           ← Rate limiting middleware
 │   ├── dependencies/
-│   │   └── auth.py             ← get_current_user (Bearer JWT), get_ws_user (query param)
+│   │   └── auth.py             ← get_current_user (Bearer), get_ws_user (query param)
 │   ├── models/                 ← SQLAlchemy 2.0 ORM
+│   │   ├── base.py             ← Declarative base
 │   │   ├── user.py             ← User
 │   │   ├── session.py          ← TeachingSession
 │   │   ├── points.py           ← PointsTransaction, TeacherPointsSummary
 │   │   ├── badge.py            ← Badge, TeacherBadge
-│   │   └── message.py          ← Message (permanent per-turn DB record)
+│   │   ├── message.py          ← Message
+│   │   ├── curriculum.py       ← UserCurriculumProfile, UserTopicCoverage, CurriculumPromptEvent
+│   │   ├── intelligence.py     ← CorrectionEvent, SessionMemorySnapshot, TeacherSignal, etc.
+│   │   ├── phrases.py          ← Phrase, PhraseSubmission, PhraseSubmissionGroup, etc.
+│   │   └── heritage.py         ← HeritageSession (NEW)
 │   ├── db/
-│   │   └── connection.py       ← async engine + get_db dependency
+│   │   ├── connection.py       ← async engine + get_db dependency
+│   │   └── init_db.py          ← init script helper
+│   ├── alembic/                ← Alembic version control for DB schema
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/           ← numbered migration files (.py)
 │   ├── routes/
-│   │   ├── auth.py             ← POST /api/auth/google, /api/auth/refresh
+│   │   ├── auth.py             ← POST /api/auth/{demo,google,refresh}
 │   │   ├── sessions.py         ← POST /api/sessions + WS /ws/session/{id}
 │   │   ├── leaderboard.py      ← GET /api/leaderboard?period=weekly|monthly|all_time
-│   │   ├── teachers.py         ← POST /api/teachers/onboarding (JWT), GET /me/stats, GET /me/badges
-│   │   └── dashboard.py        ← dashboard / coverage / brain-health APIs
-│   └── services/
-│       ├── prompt_builder.py   ← build_system_prompt(TeacherProfile) → str
-│       ├── llm.py              ← vLLM streaming + Groq fallback
-│       ├── stt.py              ← HTTP client to ml:5001/stt + Groq fallback
-│       ├── tts.py              ← HTTP client to ml:5001/tts + language-aware routing
-│       ├── points.py           ← calculate_points, log_transaction, rebuild_summary
-│       ├── badges.py           ← check_and_award (idempotent)
-│       ├── message_store.py    ← persist_teacher_turn, persist_lipi_turn (permanent DB)
-│       ├── learning.py         ← OBSERVE→EXTRACT→STORE vocabulary cycle (background task)
-│       ├── hearing.py          ← transcript quality gate / mode router
-│       ├── turn_interpreter.py ← turn meaning / correction / topic inference
-│       ├── input_understanding.py ← structured teacher-turn signals
-│       ├── teacher_modeling.py ← teacher credibility / style / expertise model
-│       ├── memory_service.py   ← structured session memory + durable snapshots
-│       ├── correction_graph.py ← persistent correction events + rule hooks
-│       ├── behavior_policy.py  ← explicit response behavior policy
-│       ├── response_orchestrator.py ← centralized LLM request assembly
-│       ├── post_generation_guard.py ← post-generation language / tone / repetition guard
-│       ├── training_capture.py ← 3-layer training-data envelope builder
-│       ├── audio_storage.py    ← best-effort raw teacher audio capture to MinIO
-│       ├── speaker_embeddings.py ← async ML client + pgvector storage path
-│       ├── speaker_clustering.py ← lightweight incremental dialect-cluster assignment
-│       ├── routing_hooks.py    ← future-safe adapter / voice / routing hooks
-│       ├── curriculum.py       ← question planning + lane assignment
-│       ├── diversity.py        ← global gap scoring
-│       ├── personality.py      ← deterministic response planning
-│       ├── response_cleanup.py ← spoken-output cleanup filter
-│       └── topic_memory.py     ← lightweight session memory for active language/topics/taught words
+│   │   ├── teachers.py         ← POST /api/teachers/onboarding, GET /me/*
+│   │   ├── dashboard.py        ← GET /api/dashboard/* (system/data health)
+│   │   ├── phrases.py          ← Phrase Lab REST API
+│   │   └── heritage.py         ← Heritage mode REST API (NEW)
+│   ├── tests/                  ← pytest test suite
+│   │   ├── conftest.py         ← pytest fixtures
+│   │   ├── fixtures/
+│   │   └── test_*.py           ← individual test files
+│   └── services/               ← Business logic layer
+│       ├── prompt_builder.py   ← Dynamic system prompt assembly per teacher
+│       ├── llm.py              ← vLLM/Gemma client + fallback
+│       ├── stt.py              ← ML service STT client + fallback
+│       ├── tts.py              ← ML service TTS client + language-aware routing
+│       ├── points.py           ← Points calculation, logging, summary rebuild
+│       ├── badges.py           ← Badge award logic (idempotent)
+│       ├── message_store.py    ← Persist teacher/LIPI turns
+│       ├── learning.py         ← Async learning queue (Valkey-backed)
+│       ├── hearing.py          ← STT quality gate, language mode detection
+│       ├── turn_interpreter.py ← Intent, correction, topic inference
+│       ├── input_understanding.py ← Merge STT + semantics + audio signals
+│       ├── audio_understanding.py ← Acoustic/prosody sidecar (graceful fallback)
+│       ├── teacher_modeling.py ← Teacher credibility, style, expertise
+│       ├── memory_service.py   ← Structured session memory snapshots
+│       ├── correction_graph.py ← Correction event tracking + review queue
+│       ├── behavior_policy.py  ← Response behavior routing logic
+│       ├── response_orchestrator.py ← Centralized LLM request assembly
+│       ├── post_generation_guard.py ← Language/tone/repetition safety filter
+│       ├── training_capture.py ← 3-layer training data envelope builder
+│       ├── audio_storage.py    ← MinIO raw audio capture service
+│       ├── phrase_pipeline.py  ← Phrase Lab processing pipeline
+│       ├── speaker_embeddings.py ← ML speaker-embed client + pgvector storage
+│       ├── speaker_clustering.py ← Lightweight dialect cluster assignment
+│       ├── routing_hooks.py    ← Future routing adapter hooks
+│       ├── curriculum.py       ← Question planning + diversity
+│       ├── curriculum_seed.py  ← Curriculum bootstrap data
+│       ├── diversity.py        ← Global gap scoring
+│       ├── personality.py      ← Response planning logic
+│       ├── response_cleanup.py ← Spoken output cleanup filter
+│       ├── topic_memory.py     ← Active language/topics/taught words
+│       └── heritage_prompt.py  ← Heritage mode prompt generation (NEW)
 │
 ├── frontend/                   ← Next.js 14 PWA (App Router)
 │   ├── app/
-│   │   ├── layout.tsx          ← ThemeProvider wraps everything
-│   │   ├── globals.css         ← CSS variables for all 4 themes
-│   │   ├── page.tsx            ← Landing page (bilingual)
-│   │   ├── (auth)/page.tsx     ← Google OAuth screen
+│   │   ├── layout.tsx          ← Root layout with ThemeProvider
+│   │   ├── globals.css         ← CSS variables for 4 themes (dark, bright, cyberpunk, traditional)
+│   │   ├── page.tsx            ← Landing page
+│   │   ├── error.tsx           ← Global error page
+│   │   ├── auth/page.tsx       ← Google OAuth sign-in page
 │   │   ├── onboarding/page.tsx ← 7-question bilingual onboarding
-│   │   └── (tabs)/             ← Tab layout with BottomNav
+│   │   ├── api/                ← Next.js API routes (proxy layer)
+│   │   │   ├── auth/
+│   │   │   │   ├── demo/route.ts       ← Demo login endpoint
+│   │   │   │   ├── google/route.ts     ← Google OAuth callback
+│   │   │   │   └── ws-token/route.ts   ← WebSocket token generation
+│   │   │   ├── sessions/route.ts       ← Session creation proxy
+│   │   │   └── proxy/[...path]/route.ts ← Same-origin proxy for backend APIs
+│   │   └── (tabs)/             ← Tab layout with 6-tab BottomNav (NEW: 6 tabs, was 4)
 │   │       ├── layout.tsx
-│   │       ├── home/page.tsx   ← Stats + CTA + mini-leaderboard
-│   │       ├── teach/page.tsx  ← Orb + VAD + WebSocket conversation + live subtitles
-│   │       ├── ranks/page.tsx  ← Weekly/monthly/all-time leaderboard
-│   │       └── settings/page.tsx ← Theme picker + dashboard link
+│   │       ├── home/page.tsx        ← Stats + CTA + mini-leaderboard
+│   │       ├── teach/page.tsx       ← Orb + VAD + WebSocket conversation + live subtitles
+│   │       ├── phrase-lab/page.tsx  ← Structured phrase capture
+│   │       ├── heritage/page.tsx    ← Heritage session UI (NEW)
+│   │       ├── ranks/page.tsx       ← Leaderboard
+│   │       └── settings/
+│   │           ├── page.tsx         ← Theme picker + dashboard link
+│   │           └── dashboard/page.tsx ← System health + data overview
 │   ├── components/
-│   │   ├── orb/Orb.tsx         ← 4-state animated orb (idle/listening/thinking/speaking)
-│   │   ├── theme/ThemeProvider.tsx ← data-theme on <html>, localStorage persist
-│   │   └── ui/BottomNav.tsx    ← 4-tab nav, bilingual labels
+│   │   ├── orb/Orb.tsx                    ← 4-state animated orb
+│   │   ├── theme/ThemeProvider.tsx        ← Theme context + CSS var injection
+│   │   ├── ui/BottomNav.tsx               ← 6-tab navigation (NEW: was 4)
+│   │   └── phrase-lab/
+│   │       ├── HoldToRecordButton.tsx
+│   │       ├── PhraseCard.tsx
+│   │       └── VariationPrompt.tsx
 │   └── lib/
-│       ├── api.ts              ← REST client (all /api/* calls)
-│       └── websocket.ts        ← LipiWebSocket class (binary + JSON frames)
+│       ├── api.ts              ← REST client for all /api/* calls
+│       └── websocket.ts        ← WebSocket client (binary + JSON frames)
 │
-└── pipeline/                   ← Monthly LoRA fine-tuning (not yet built)
-    ├── prepare_data.py
-    ├── train_lora.py
-    ├── eval.py
-    └── announce.py
+└── pipeline/                   ← Monthly LoRA fine-tuning (PHASE 4 — not yet built)
+    ├── prepare_data.py         ← TBD: training data preparation
+    ├── train_lora.py           ← TBD: LoRA fine-tuning on Qwen/Whisper
+    ├── eval.py                 ← TBD: model evaluation
+    └── announce.py             ← TBD: results announcement to teachers
 ```
 
 ---
@@ -277,11 +322,14 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
   ├─ 2. hearing_svc.analyze_hearing()             HEARING ENGINE
   │     └─ quality gate, language mode, learning_allowed
   │
-  ├─ 3. turn_interpreter.interpret_turn()         TURN INTERPRETER
+  ├─ 3. audio_understanding.extract_audio_signals() AUDIO SIDECAR
+  │     └─ POST ml:5001/audio-understand → {dialect, tone, prosody}
+  │
+  ├─ 4. turn_interpreter.interpret_turn()         TURN INTERPRETER
   │     └─ intent, correction, topic, taught terms, style hints
   │
-  ├─ 4. input_understanding.analyze_input()       INPUT UNDERSTANDING
-  │     └─ structured language / teaching / tone / correction / dialect / prosody signals
+  ├─ 5. input_understanding.merge_signals()       INPUT UNDERSTANDING
+  │     └─ safely merges transcript (Whisper), Semantics (LLM), and Audio signals (Gemma Audio)
   │
   ├─ 5. memory_service + teacher_modeling         INTELLIGENCE STATE
   │     ├─ load structured session memory
@@ -310,13 +358,13 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
   │
   ├─ 13. post_generation_guard.guard_response()   SAFETY / QUALITY FILTER
   │
-  ├─ 14. Persist both turns to DB                 STORE
+  ├─ 15. Persist both turns to DB                 STORE
   │     └─ message_store.persist_teacher_turn()
   │     └─ message_store.persist_lipi_turn()
-  │     └─ correction_graph.record_correction_event()
+  │     └─ correction_graph.record_correction_event() → **ReviewQueueItem generated**
   │     └─ teacher turn gets raw / derived / high-value signal JSONB envelopes
   │
-  ├─ 15. memory_service.update_session_memory()
+  ├─ 16. memory_service.update_session_memory()
   │     └─ teacher_modeling.apply_teacher_turn_outcome()
   │
   ├─ 16. topic_memory.update_session_memory()
@@ -598,7 +646,15 @@ Every user-facing string has Nepali (primary, larger, top) and English (secondar
 
 ### Navigation
 
-4 tabs: Home → `/home`, Teach → `/teach`, Ranks → `/ranks`, Settings → `/settings`. All live inside `app/(tabs)/` with a shared `layout.tsx` containing `<BottomNav>`.
+6 tabs (updated from 4): 
+- Home → `/home`
+- Teach → `/teach` 
+- Heritage → `/heritage` (NEW: targeted dialect/register capture)
+- Phrase Lab → `/phrase-lab` (NEW: structured phrase variation capture)
+- Ranks → `/ranks`
+- Settings → `/settings`
+
+All tabs live inside `app/(tabs)/` with shared `layout.tsx` containing `<BottomNav>`.
 
 ---
 
@@ -720,45 +776,36 @@ Badges are checked after every session close via `_close_session()` in `routes/s
 
 | Phase | Status | What was built |
 |-------|--------|----------------|
-| Phase 0 — Infrastructure | ✅ Complete | docker-compose, Caddy, init-db.sql, .env.example, ML service |
-| Phase 1 — Core Conversation | ✅ Complete | WS handler, prompt_builder, STT/LLM/TTS services, JWT auth, message persistence, learning cycle |
-| Phase 2 — Frontend | ✅ Complete | Auth, onboarding, Orb, teach, home, ranks, settings, nav |
-| Phase 3 — Gamification | ✅ Complete | Points, badges, leaderboard, summary rebuild, ORM models |
-| Roadmap Weeks 7–10 | 🔲 Next | Speaker embeddings, GDPR consent, moderation, quality tuning |
-| Roadmap Weeks 11–14 | 🔲 Future | VITS training, Whisper LoRA, LLM benchmarking, pipeline/ scripts |
+| Phase 0 — Infrastructure | ✅ Complete | docker-compose, Caddy, Alembic migrations, .env.example, ML service |
+| Phase 1 — Core Conversation | ✅ Complete | WS handler, prompt_builder, STT/LLM/TTS, JWT auth, learning cycle |
+| Phase 2 — Frontend | ✅ Complete | Auth, onboarding, Orb, teach, home, phrase-lab, heritage, ranks, settings |
+| Phase 3 — Gamification | ✅ Complete | Points, badges, leaderboard, ORM models |
+| Phase 3.5 — Data Capture Expansion | ✅ Complete | Phrase Lab (structured) + Heritage (dialect), both with full ORM/routes/frontend |
+| Phase 3.75 — Intelligence | ✅ Complete | Multi-engine brain (hearing, turn interpreter, curriculum, personality, etc.) |
+| Roadmap — Quality & Deployment | 🔲 Next | Remote deployment fixes, STT quality (Newari), voice quality, GDPR consent UI |
+| Phase 4 — Training Pipeline | 🔲 Future | `pipeline/` scripts for LoRA fine-tuning, data export, monthly announcement |
 
-### What still needs to be done before first real user test
+### Critical remaining issues
 
-**Critical path (blocking a good first real user test):**
+**Blocking first user test:**
 
-1. **STT quality** — infrastructure is up, but Newari and mixed-language understanding are still not strong enough.
+1. **STT quality for Newari/mixed turns** — infrastructure is live, but Newari often collapses into Nepali. This contaminates all downstream behavior.
+2. **Voice quality** — Piper baseline is acceptable but not polished. Split English/Nepali TTS routing is coded but needs remote deployment confirmation.
+3. **LIPI feels too rigid** — excessive confirmation, over-constructed phrasing. Needs tuning in `personality.py`, `response_cleanup.py`, `behavior_policy.py`.
 
-2. **Voice quality** — current Piper baseline works, but the product feel is still weak. Split English/Nepali voice routing should be finished and tuned.
+**Quality (pre-ship):**
 
-3. **Speaker embedding extraction** — async worker fetches teacher audio from MinIO, calls ML `/speaker-embed`, and writes `vector(512)` rows into `speaker_embeddings`. Current implementation is `acoustic_signature_v1`: a lightweight deterministic 512-d acoustic signature suitable for capture, storage, and early clustering experiments. It is not yet a learned dialect/speaker model.
+4. **GDPR consent workflow** — Users have `consent_audio_training` field but Settings has no toggle UI.
+5. **Moderation filter** — No validation on `correction_accepted` events (spam/abuse filtering).
+6. **Dead-letter queue alerting** — Valkey learning queue DLQ exists, no monitoring.
+7. **CI/CD pipeline** — 16 test files exist, but no automated CI running them.
 
-4. **Async learning queue** — ✅ Implemented with Valkey-backed pending/processing/dead-letter queues and retry logic in the backend lifespan worker. Remaining gap: add monitoring/alerting for dead-letter growth.
+### Recently completed (just now, 2026-04-17)
 
-**Quality (before shipping):**
-
-4. **Alembic migrations** — `init-db.sql` handles first-run, but schema changes need numbered Alembic migration files in `backend/db/migrations/`.
-
-5. **Moderation filter** — LIPI should reject corrections that appear to be spam or abuse. Currently no validation on correction_accepted events.
-
-6. **GDPR consent workflow** — Users have `consent_audio_training` field but no UI to change it. Add a settings page section to toggle training data consent.
-
-7. **CI/CD pipeline** — no automated tests or build pipeline yet. Tests should verify:
-   - All endpoints return appropriate status codes
-   - Education level values don't violate DB constraints
-   - Tone profile cache has correct fields
-   - JWT auth works for both Bearer and query-param modes
-
-### Recently completed (was pending)
-
-- ✅ **ORM ↔ DB alignment** — All 5 ORM models (User, TeachingSession, PointsTransaction, TeacherPointsSummary, TeacherBadge, Message) fixed to match actual PostgreSQL schema. Column names, UUID types (`postgresql.UUID(as_uuid=False)`), JSONB columns, NOT NULL defaults all corrected. All write paths verified.
-- ✅ **Auth DB upsert** — `POST /api/auth/google` now creates or updates a `users` row from Google userinfo. JWT `sub` is the internal LIPI UUID (not Google sub). Response includes `user_id` and `onboarding_complete` flag.
-- ✅ **Onboarding JWT-wired** — `POST /api/teachers/onboarding` uses `get_current_user` dep. The old dev `POST /api/teachers/onboarding/{user_id}` (path param, no auth) has been removed.
-- ✅ **Volume mount** — `docker-compose.dev.yml` mounts `./backend:/app` so uvicorn `--reload` picks up changes without rebuilding the image.
+- ✅ **Heritage feature unbroken** — Created missing `backend/models/heritage.py`, `backend/services/heritage_prompt.py`, and Alembic migration `b8d7e4c3f920_heritage_sessions`. Heritage routes now fully functional.
+- ✅ **Phrase Lab wired** — Full ORM + REST API + frontend UI. Submission capture, skip events, reconfirmation queue all working.
+- ✅ **Alembic migrations live** — Using Alembic version control (6 migration files) instead of raw `init-db.sql` for schema changes. First-run still uses `init-db.sql`.
+- ✅ **DB schema documentation** — All tables now match between `init-db.sql`, Alembic, and ORM models.
 
 ### Latest fixes (2026-04-14)
 
@@ -801,7 +848,29 @@ docker exec lipi-backend bash -c 'TOKEN=$(curl -s -X POST http://localhost:8000/
 
 ---
 
-## 13. Adding a New Feature (Checklist)
+## 13. Phrase Lab Architecture
+
+Phrase Lab is a bilingual, voice-first learning engine designed to capture targeted dialect and register data by presenting a single phrase at a time. It dramatically differs from standard generic translation tools.
+
+**Why Phrase Lab?**
+- Prevents user paralysis ("What should I teach?").
+- Evaluates acoustic confidence without relying heavily on STT accuracy (critical for minority dialects/accents).
+- Tracks formal/informal variation shifts (Casual -> Friendly -> Respectful -> Elder).
+
+**How it differs from "Teach" mode**
+Teach heavily relies on live WebSockets and immediate Turn Understanding. Phrase Lab uses structured REST endpoints (`POST /api/phrases/submit-audio`) allowing for discrete skips, retries, and scheduled *reconfirmations*. 
+
+**Core Flow Context:**
+1. LLM Generates robust candidates -> Admin Reviews -> Placed in `phrases` active rotation.
+2. User selects **Phrase Lab** (from bottom navigation).
+3. The UI queries `GET /api/phrases/next`, avoiding immediately repeated or skipped material, and specifically popping items from the `PhraseReconfirmationQueue` if a previous submission was low-confidence.
+4. User Hold-to-Record. If `hearing.quality_label = poor`, it forcibly triggers a "Retry" before proceeding to LLM semantic interpretation.
+5. If `success`, it extracts multimodality metadata (tone, dialect via Audio sidecar) and stores it natively in `phrase_submissions`.
+6. Enqueues an async learning cycle via `learning.enqueue_phrase_submission`.
+
+---
+
+## 14. Adding a New Feature (Checklist)
 
 Before writing a line:
 - [ ] Does this serve data collection or teacher retention? If not, don't build it.
@@ -819,7 +888,7 @@ After writing:
 
 ---
 
-## 14. Common Debugging
+## 15. Common Debugging
 
 ### "STT service not ready" on POST /stt
 
@@ -843,7 +912,7 @@ Check `docker compose logs backend`. Usually a Python exception during the first
 
 ---
 
-## 15. Glossary
+## 16. Glossary
 
 | Term | Meaning |
 |------|---------|

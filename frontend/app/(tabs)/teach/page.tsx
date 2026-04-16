@@ -7,8 +7,9 @@ import { LipiWebSocket } from "@/lib/websocket";
 import styles from "./teach.module.css";
 
 // ─── VAD constants ────────────────────────────────────────────────────────────
-const SILENCE_THRESHOLD = 0.015;   // RMS below this = silence
-const SILENCE_DURATION_MS = 900;   // hold silence this long before sending
+const SILENCE_THRESHOLD = 0.008;   // RMS below this = silence
+const SILENCE_DURATION_MS = 650;   // hold silence this long before sending
+const MAX_UTTERANCE_MS = 2400;     // force-send if speech continues this long
 const SAMPLE_RATE = 16000;
 const CHUNK_SIZE = 4096;
 
@@ -30,6 +31,7 @@ export default function TeachPage() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const chunksRef = useRef<Float32Array[]>([]);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxUtteranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speakingRef = useRef(false);
   const correctionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
@@ -38,6 +40,26 @@ export default function TeachPage() {
   const bootstrappedRef = useRef(false);
   const streamRef = useRef<MediaStream | null>(null);
   const socketOpenedRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
+  const userIdRef = useRef<string | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushCurrentAudio = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (maxUtteranceTimerRef.current) {
+      clearTimeout(maxUtteranceTimerRef.current);
+      maxUtteranceTimerRef.current = null;
+    }
+    speakingRef.current = false;
+    setOrbState("thinking");
+    setStatusText("पठाउँदैछ · Sending");
+    flushAudio();
+  }, []);
 
   // ── Bootstrap session + WebSocket ─────────────────────────────────────────
   useEffect(() => {
@@ -49,12 +71,16 @@ export default function TeachPage() {
 
     (async () => {
       const userId = localStorage.getItem("lipi.user_id") ?? "guest";
+      userIdRef.current = userId;
       let sessionId: string;
       try {
         console.log("Creating session for user:", userId);
         const session = await createSession();
         console.log("Session created:", session);
         sessionId = session.session_id;
+        sessionIdRef.current = sessionId;
+        userIdRef.current = session.user_id;
+        localStorage.setItem("lipi.user_id", session.user_id);
         setSessionReady(true);
         setStatusText("सत्र तयार छ · Session ready");
       } catch (error) {
@@ -79,6 +105,7 @@ export default function TeachPage() {
         onOpen: handleSocketOpen,
         onTranscript: (text, language, confidence) => {
           setTeacherSubtitle(text);
+          setStatusText("सोच्दैछ · Thinking");
           const confText =
             typeof confidence === "number" ? ` · ${(confidence * 100).toFixed(0)}%` : "";
           setSubtitleMeta(`${language ?? "unknown"}${confText}`);
@@ -110,11 +137,70 @@ export default function TeachPage() {
           setOrbState("idle");
           setStatusText("लाइभ च्यानलमा समस्या आयो · Live channel error");
         },
-        onClose: () => {
-          console.log("WebSocket closed");
+        onClose: (ev) => {
+          console.log("WebSocket closed", {
+            code: ev.code,
+            reason: ev.reason,
+            wasClean: ev.wasClean,
+          });
           setWsReady(false);
+          socketOpenedRef.current = false;
           if (!cancelled) setOrbState("idle");
-          if (!cancelled) setStatusText("लाइभ च्यानल बन्द भयो · Live channel closed");
+          if (!cancelled) setStatusText("लाइभ च्यानल फेरि जोड्दैछ… · Reconnecting live channel…");
+          if (!cancelled && sessionIdRef.current && userIdRef.current) {
+            if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = setTimeout(() => {
+              if (cancelled || !sessionIdRef.current || !userIdRef.current) return;
+              wsRef.current = new LipiWebSocket(sessionIdRef.current, userIdRef.current, {
+                onOpen: handleSocketOpen,
+                onTranscript: (text, language, confidence) => {
+                  setTeacherSubtitle(text);
+                  setStatusText("सोच्दैछ · Thinking");
+                  const confText =
+                    typeof confidence === "number" ? ` · ${(confidence * 100).toFixed(0)}%` : "";
+                  setSubtitleMeta(`${language ?? "unknown"}${confText}`);
+                },
+                onToken: (text) => {
+                  setLipiSubtitle(text);
+                },
+                onTTSStart: (_text, _turn) => {
+                  ttsActiveRef.current = true;
+                  chunksRef.current = [];
+                  speakingRef.current = false;
+                  setOrbState("speaking");
+                  setStatusText("उत्तर दिँदैछ · Speaking");
+                },
+                onAudio: (wav) => {
+                  audioQueueRef.current.push(wav);
+                  if (!playingRef.current) drainQueue();
+                },
+                onTTSEnd: () => {
+                  ttsActiveRef.current = false;
+                  if (micReady) setStatusText("सुनिरहेको छ · Listening");
+                },
+                onEmptyAudio: () => {
+                  setOrbState("idle");
+                  setStatusText("अडियो आएन · No audio returned");
+                },
+                onError: (err) => {
+                  console.error("WebSocket error:", err);
+                  setOrbState("idle");
+                  setStatusText("लाइभ च्यानलमा समस्या आयो · Live channel error");
+                },
+                onClose: (ev) => {
+                  console.log("WebSocket closed", {
+                    code: ev.code,
+                    reason: ev.reason,
+                    wasClean: ev.wasClean,
+                  });
+                  setWsReady(false);
+                  socketOpenedRef.current = false;
+                  if (!cancelled) setOrbState("idle");
+                  if (!cancelled) setStatusText("लाइभ च्यानल फेरि जोड्दैछ… · Reconnecting live channel…");
+                },
+              });
+            }, 1200);
+          }
         },
       });
 
@@ -144,7 +230,9 @@ export default function TeachPage() {
       cancelled = true;
       socketOpenedRef.current = false;
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (maxUtteranceTimerRef.current) clearTimeout(maxUtteranceTimerRef.current);
       if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       processorRef.current?.disconnect();
       processorRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -185,7 +273,7 @@ export default function TeachPage() {
   }
 
   // ── Microphone + VAD ──────────────────────────────────────────────────────
-  async function startMic(ws: LipiWebSocket) {
+  async function startMic() {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true },
     });
@@ -193,9 +281,12 @@ export default function TeachPage() {
 
     const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     audioCtxRef.current = ctx;
+    await ctx.resume();
 
     const source = ctx.createMediaStreamSource(stream);
     const processor = ctx.createScriptProcessor(CHUNK_SIZE, 1, 1);
+    const muteGain = ctx.createGain();
+    muteGain.gain.value = 0;
     processorRef.current = processor;
 
     processor.onaudioprocess = (e) => {
@@ -205,6 +296,10 @@ export default function TeachPage() {
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = null;
+        }
+        if (maxUtteranceTimerRef.current) {
+          clearTimeout(maxUtteranceTimerRef.current);
+          maxUtteranceTimerRef.current = null;
         }
         return;
       }
@@ -221,6 +316,17 @@ export default function TeachPage() {
           setOrbState("listening");
           setStatusText("सुनिरहेको छ · Listening");
           chunksRef.current = [];
+          maxUtteranceTimerRef.current = setTimeout(() => {
+            speakingRef.current = false;
+            maxUtteranceTimerRef.current = null;
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
+            setOrbState("thinking");
+            setStatusText("पठाउँदैछ · Sending");
+            flushAudio();
+          }, MAX_UTTERANCE_MS);
         }
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
@@ -232,15 +338,20 @@ export default function TeachPage() {
         silenceTimerRef.current = setTimeout(() => {
           speakingRef.current = false;
           silenceTimerRef.current = null;
+          if (maxUtteranceTimerRef.current) {
+            clearTimeout(maxUtteranceTimerRef.current);
+            maxUtteranceTimerRef.current = null;
+          }
           setOrbState("thinking");
           setStatusText("सोच्दैछ · Thinking");
-          flushAudio(ws);
+          flushAudio();
         }, SILENCE_DURATION_MS);
       }
     };
 
     source.connect(processor);
-    processor.connect(ctx.destination);
+    processor.connect(muteGain);
+    muteGain.connect(ctx.destination);
     setMicReady(true);
     setMicError(null);
     setStatusText("सुनिरहेको छ · Listening");
@@ -254,7 +365,7 @@ export default function TeachPage() {
       return;
     }
     try {
-      await startMic(wsRef.current);
+      await startMic();
     } catch (error) {
       console.error("Microphone startup failed:", error);
       setMicReady(false);
@@ -263,7 +374,9 @@ export default function TeachPage() {
     }
   }
 
-  function flushAudio(ws: LipiWebSocket) {
+  function flushAudio() {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (chunksRef.current.length === 0) return;
     const total = chunksRef.current.reduce((s, c) => s + c.length, 0);
     const merged = new Float32Array(total);
@@ -293,6 +406,11 @@ export default function TeachPage() {
             </button>
             {micError && <p className={styles.connecting}>{micError}</p>}
           </>
+        )}
+        {micReady && (
+          <button className={styles.stopBtn} onClick={flushCurrentAudio}>
+            रोक्नुहोस् र पठाउनुहोस् · Stop And Send
+          </button>
         )}
       </div>
 

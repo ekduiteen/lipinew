@@ -44,6 +44,7 @@ from services import curriculum as curriculum_svc
 from services import diversity as diversity_svc
 from services import hearing as hearing_svc
 from services import input_understanding as input_understanding_svc
+from services import audio_understanding as audio_understanding_svc
 from services import message_store
 from services import learning as learning_svc
 from services import memory_service as memory_service_svc
@@ -187,6 +188,13 @@ async def conversation_ws(
     session_id: str,
     user_id: str = Depends(get_ws_user),
 ):
+    origin = websocket.headers.get("origin")
+    allowed = [u.strip() for u in settings.app_url.split(",")]
+    if origin and not any(origin.startswith(a) for a in allowed) and not any("localhost" in a for a in allowed):
+        logger.warning(f"WS origin rejected: {origin}")
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     logger.info("WS connected session=%s user=%s", session_id, user_id)
 
@@ -277,11 +285,25 @@ async def conversation_ws(
                 message_history[0] = {"role": "system", "content": system_prompt}
                 logger.info("Register switched to %s", new_register)
 
+            # ── 3.5 Audio Understanding Sidecar ───────────────────────────
+            # Short timeout allows graceful fallback without killing the WS loop
+            audio_signals = await audio_understanding_svc.extract_audio_signals(
+                http=http,
+                audio_bytes=audio_bytes,
+                rough_transcript=teacher_text,
+            )
+
             # ── 4. LLM (stream tokens to client) ─────────────────────────
             memory = await topic_memory_svc.load_session_memory(session_id)
             memory["latest_teacher_text"] = teacher_text
             interpretation = turn_interpreter_svc.interpret_turn(hearing, memory)
-            understanding = input_understanding_svc.analyze_input(hearing, interpretation)
+            understanding = input_understanding_svc.merge_signals(
+                turn_id=str(uuid.uuid4()),
+                hearing=hearing,
+                interpretation=interpretation,
+                audio_signals=audio_signals,
+                memory_context=memory
+            )
             async with SessionLocal() as db:
                 if user is None:
                     user = await db.get(User, user_id)

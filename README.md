@@ -14,6 +14,7 @@ The app is working end-to-end:
 - auth
 - onboarding
 - live Teach screen
+- phrase lab capture flow
 - WebSocket conversation loop
 - STT / LLM / TTS integration
 - points / badges / leaderboard
@@ -57,6 +58,7 @@ Main engines:
 - Hearing Engine
 - Turn Interpreter
 - Input Understanding Layer
+- Audio Understanding Sidecar
 - Teacher Modeling Layer
 - Structured Session Memory
 - Correction Graph
@@ -67,6 +69,7 @@ Main engines:
 - Learning Engine
 - Post-Generation Guard
 - Training Data Capture System
+- Phrase Lab Pipeline
 
 Key files:
 - [backend/routes/sessions.py](backend/routes/sessions.py)
@@ -93,6 +96,14 @@ Every teacher turn now produces structured capture layers:
 - high-value learning signals
 
 Those are stored alongside the `messages` record using JSONB fields, plus correction graph, session memory, teacher signals, async learning updates, and async speaker-embedding capture into `speaker_embeddings` with lightweight incremental cluster assignment.
+
+LIPI now has two collection modes:
+- `Teach`: open-ended student/teacher conversation
+- `Phrase Lab`: structured phrase and variation capture for cleaner supervised data
+
+The newest learning direction is also more conservative:
+- correction-derived rules are moving toward a review queue instead of being blindly trusted
+- audio-understanding sidecar signals are optional enrichment, not a hard dependency for the live path
 
 ## Canonical Docs
 

@@ -147,9 +147,11 @@ ONBOARDING (one question per screen)
 ├── Q6: Education level (chips)
 └── Q7: Gender (chips) → Home
 
-MAIN APP (4 tabs)
+MAIN APP (6 tabs)
 ├── [Home]        — Dashboard + stats
 ├── [Teach]       — Conversation (orb)
+├── [Heritage]    — Long-form cultural stories and proverbs
+├── [Phrase Lab]  — Targeted sentence translation and dialect tracking
 ├── [Ranks]       — Leaderboards
 └── [Settings]    — Theme + prefs + consent
 
@@ -426,7 +428,34 @@ After natural conversation pause or teacher navigates away:
 
 ---
 
-### 5. Ranks Screen
+### 5. Heritage Screen
+
+```
+┌─────────────────────────────┐
+│  Stories & Heritage         │
+│  Help preserve language     │
+│                             │
+│  [Story] [Word] [Culture]   │  ← mode selector
+│                             │
+│  ┌─────────────────────┐    │
+│  │                     │    │
+│  │ Tell a full story   │    │  ← dynamic prompt
+│  │ about your childhood│    │
+│  │                     │    │
+│  └─────────────────────┘    │
+│                             │
+│          ╭~~~~~╮            │
+│        ~~   🎤   ~~         │  ← hold to record
+│          ╰~~~~~╯            │
+│                             │
+└─────────────────────────────┘
+```
+
+A calmer, slower-paced session compared to the main 'Teach' orb. Built for deep cultural preservation and long-form speech.
+
+---
+
+### 6. Ranks Screen
 
 ```
 ┌─────────────────────────────┐

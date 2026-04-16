@@ -18,6 +18,16 @@ from .intelligence import (
     KnowledgeConfidenceHistory,
     UsageRule,
 )
+from .phrases import (
+    PhraseGenerationBatch,
+    Phrase,
+    PhraseSubmissionGroup,
+    PhraseSubmission,
+    PhraseSkipEvent,
+    PhraseReconfirmationQueue,
+    PhraseMetrics,
+)
+from .heritage import HeritageSession
 
 __all__ = [
     "Base",
@@ -38,4 +48,12 @@ __all__ = [
     "TeacherCredibilityEvent",
     "KnowledgeConfidenceHistory",
     "UsageRule",
+    "PhraseGenerationBatch",
+    "Phrase",
+    "PhraseSubmissionGroup",
+    "PhraseSubmission",
+    "PhraseSkipEvent",
+    "PhraseReconfirmationQueue",
+    "PhraseMetrics",
+    "HeritageSession",
 ]

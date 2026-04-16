@@ -1,203 +1,173 @@
-"""Structured input understanding built on top of hearing + turn interpretation."""
+"""Input understanding: unify hearing, turn interpretation, and optional audio-sidecar signals."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import re
 
+from services.audio_understanding import AudioUnderstandingResult
 from services.hearing import HearingResult
 from services.turn_interpreter import TurnInterpretation
 
 
-_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
-_LATIN_RE = re.compile(r"[A-Za-z]")
-_HELPFUL_HINTS = ("please", "let me", "i'll tell", "सिकाउँछु", "बताउँछु", "भनिदिन्छु")
-_FORMAL_HINTS = ("तपाईं", "हजुर", "please", "sir", "madam")
-_CASUAL_HINTS = ("तिमी", "तँ", "buddy", "bro", "haha", "lol")
-_GREETING_HINTS = ("hello", "hi", "namaste", "नमस्ते", "jojolopa", "जोजोलोपा")
-
-
 @dataclass(frozen=True)
 class InputUnderstanding:
+    turn_id: str
     primary_language: str
     secondary_languages: list[str]
     code_switch_ratio: float
-    is_correction: bool
-    is_teaching: bool
     topic: str
     tone: str
-    transcript_confidence: float
-    quality_label: str
-    conversation_allowed: bool
-    learning_allowed: bool
-    dialect_hook: str | None
+    emotion: str
+    is_correction: bool
+    is_teaching: bool
+    taught_terms: list[str]
+    register_estimate: str
     dialect_guess: str | None
     dialect_confidence: float
     speech_rate: str
-    pronunciation_style: str
     prosody_pattern: str
-    register_estimate: str
-    reason_codes: list[str]
+    pronunciation_style: str
+    transcript_confidence: float
+    learning_allowed: bool
+    conversation_allowed: bool
+    signal_confidences: dict[str, float]
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
-def _infer_secondary_languages(text: str, primary_language: str) -> list[str]:
-    secondary: list[str] = []
-    if _LATIN_RE.search(text) and primary_language != "en":
-        secondary.append("en")
-    lowered = text.lower()
-    if any(marker in lowered for marker in ("newari", "nepal bhasa", "newa")) and primary_language != "new":
-        secondary.append("new")
-    return secondary
-
-
-def _estimate_code_switch_ratio(text: str) -> float:
-    lowered = text.lower()
-    local_language_hints = ("newari", "nepal bhasa", "newa", "jojolopa", "bhancha", "ma")
-    has_local_hint = any(token in lowered for token in local_language_hints)
-    has_english_hint = any(ch.isascii() and ch.isalpha() for ch in text)
-
-    latin_count = len(_LATIN_RE.findall(text))
-    devanagari_count = len(_DEVANAGARI_RE.findall(text))
-    total = latin_count + devanagari_count
-    if total == 0:
-        return 0.35 if has_local_hint and has_english_hint else 0.0
-    if devanagari_count == 0 and has_local_hint and has_english_hint:
-        return 0.35
-    return round(min(latin_count, devanagari_count) / total, 3)
-
-
-def _infer_tone(text: str, interpretation: TurnInterpretation) -> str:
-    lowered = text.lower()
-    helpful = any(token in lowered for token in _HELPFUL_HINTS) or interpretation.is_correction
-    formal = interpretation.register_hint in {"tapai", "hajur"} or any(token in text for token in _FORMAL_HINTS)
-    casual = interpretation.register_hint in {"timi", "ta"} or any(token in lowered for token in _CASUAL_HINTS)
-
-    if helpful and formal:
-        return "helpful_formal"
-    if helpful and casual:
-        return "helpful_casual"
-    if formal:
-        return "formal"
-    if casual:
-        return "casual"
-    return "neutral"
-
-
-def _normalize_topic(text: str, interpretation: TurnInterpretation) -> str:
-    lowered = text.lower()
-    if any(token in lowered for token in _GREETING_HINTS):
-        return "greeting_usage"
-    if interpretation.active_topic:
-        return interpretation.active_topic
-    return "everyday_basics"
-
-
-def _estimate_speech_rate(text: str, duration_ms: int | None) -> str:
-    if not duration_ms or duration_ms <= 0:
-        return "unknown"
-    words = max(len(text.split()), 1)
-    words_per_second = words / max(duration_ms / 1000, 0.25)
-    if words_per_second < 1.6:
-        return "slow"
-    if words_per_second > 3.2:
-        return "fast"
-    return "medium"
-
-
-def _estimate_pronunciation_style(text: str, primary_language: str, code_switch_ratio: float) -> str:
-    lowered = text.lower()
-    if any(token in lowered for token in ("newari", "newa", "nepal bhasa", "jojolopa")):
-        return "newari_leaning"
-    if primary_language == "en" and code_switch_ratio < 0.15:
-        return "english_forward"
-    if code_switch_ratio >= 0.28:
-        return "code_switched"
-    return "standard_spoken"
-
-
-def _estimate_prosody_pattern(text: str, tone: str, speech_rate: str) -> str:
-    if "?" in text:
-        return "question_rise"
-    if tone.startswith("helpful"):
-        return "guided_even"
-    if speech_rate == "fast":
-        return "compressed"
-    if speech_rate == "slow":
-        return "measured"
-    return "neutral"
-
-
-def _guess_dialect(
-    text: str,
-    primary_language: str,
-    secondary_languages: list[str],
-    code_switch_ratio: float,
-) -> tuple[str | None, float]:
-    lowered = text.lower()
-    if any(token in lowered for token in ("newari", "newa", "nepal bhasa", "jojolopa")):
-        return "newari_kathmandu_mix", 0.68
-    if primary_language == "ne" and "en" in secondary_languages and code_switch_ratio >= 0.25:
-        return "kathmandu_mix", 0.58
-    if any(token in lowered for token in ("maithili", "bhojpuri", "tharu", "tamang")):
-        return "regional_named_variant", 0.64
-    return None, 0.0
-
-
-def analyze_input(
+def _fallback_audio_signals(
     hearing: HearingResult,
     interpretation: TurnInterpretation,
-) -> InputUnderstanding:
-    primary_language = "new" if any(
-        token in hearing.clean_text.lower() for token in ("newari", "nepal bhasa", "newa")
-    ) else hearing.language
-    secondary_languages = _infer_secondary_languages(hearing.clean_text, primary_language)
-    code_switch_ratio = _estimate_code_switch_ratio(hearing.clean_text)
-    if hearing.mode == "mixed" and code_switch_ratio == 0.0:
+) -> AudioUnderstandingResult:
+    secondary_languages: list[str] = []
+    code_switch_ratio = 0.0
+    if hearing.mode == "mixed":
+        secondary_languages = ["en"] if hearing.language != "en" else ["ne"]
         code_switch_ratio = 0.35
-    tone = _infer_tone(hearing.clean_text, interpretation)
-    topic = _normalize_topic(hearing.clean_text, interpretation)
-    speech_rate = _estimate_speech_rate(hearing.clean_text, hearing.audio_duration_ms)
-    pronunciation_style = _estimate_pronunciation_style(
-        hearing.clean_text,
-        primary_language,
-        code_switch_ratio,
-    )
-    prosody_pattern = _estimate_prosody_pattern(hearing.clean_text, tone, speech_rate)
-    dialect_guess, dialect_confidence = _guess_dialect(
-        hearing.clean_text,
-        primary_language,
-        secondary_languages,
-        code_switch_ratio,
-    )
+    elif hearing.mode == "english":
+        secondary_languages = []
+        code_switch_ratio = 0.0
 
-    dialect_hook = None
     lowered = hearing.clean_text.lower()
-    if any(token in lowered for token in ("newari", "nepal bhasa", "newa")):
-        dialect_hook = "newari_bias"
-    elif any(token in lowered for token in ("maithili", "bhojpuri", "tharu", "tamang")):
-        dialect_hook = "regional_language_bias"
+    dialect_guess = None
+    dialect_confidence = 0.0
+    pronunciation_style = "standard_spoken"
+    if "newari" in lowered or "newa" in lowered or "newari" in lowered or "jojolopa" in lowered:
+        dialect_guess = "newari_kathmandu_mix"
+        dialect_confidence = 0.72
+        pronunciation_style = "newari_leaning"
+    elif "kathmandu" in lowered:
+        dialect_guess = "kathmandu"
+        dialect_confidence = 0.6
 
-    return InputUnderstanding(
-        primary_language=primary_language or "unknown",
+    if hearing.mode == "english":
+        register_estimate = "neutral"
+    else:
+        register_estimate = interpretation.register_hint or "timi"
+
+    speech_rate = "medium"
+    token_count = len(hearing.clean_text.split())
+    duration_ms = int(hearing.audio_duration_ms or 0)
+    if duration_ms > 0:
+        words_per_second = token_count / max(duration_ms / 1000, 0.1)
+        if words_per_second >= 2.8:
+            speech_rate = "fast"
+        elif words_per_second <= 1.3:
+            speech_rate = "slow"
+    elif token_count >= 8:
+        speech_rate = "fast"
+
+    tone = "friendly"
+    emotion = interpretation.emotion_hint or "neutral"
+    if interpretation.is_correction:
+        tone = "helpful_formal"
+    elif interpretation.intent_type == "chat_socially":
+        tone = "friendly"
+
+    primary_language = hearing.language or "ne"
+    if dialect_guess and primary_language in {"en", "unknown"}:
+        primary_language = "new"
+
+    return AudioUnderstandingResult(
+        primary_language=primary_language,
         secondary_languages=secondary_languages,
         code_switch_ratio=code_switch_ratio,
-        is_correction=interpretation.is_correction,
-        is_teaching=interpretation.intent_type in {"teach_word", "give_example", "invite_lipi_choice"},
-        topic=topic,
         tone=tone,
-        transcript_confidence=hearing.confidence,
-        quality_label=hearing.quality_label,
-        conversation_allowed=hearing.conversation_allowed,
-        learning_allowed=hearing.learning_allowed,
-        dialect_hook=dialect_hook,
+        emotion=emotion,
+        is_correction=interpretation.is_correction,
+        is_teaching=interpretation.intent_type in {"teach_word", "give_example", "regional_variation"},
+        topic=interpretation.active_topic,
         dialect_guess=dialect_guess,
         dialect_confidence=dialect_confidence,
         speech_rate=speech_rate,
+        prosody_pattern="rising" if interpretation.intent_type == "ask_question" else "neutral",
         pronunciation_style=pronunciation_style,
-        prosody_pattern=prosody_pattern,
-        register_estimate=interpretation.register_hint,
-        reason_codes=hearing.reason_codes,
+        register_estimate=register_estimate,
+        model_source="text_heuristic_fallback",
+        model_confidence=max(0.45, min(hearing.confidence, 0.78)),
+    )
+
+
+def merge_signals(
+    turn_id: str,
+    hearing: HearingResult,
+    interpretation: TurnInterpretation,
+    audio_signals: AudioUnderstandingResult,
+    memory_context: dict | None = None,
+) -> InputUnderstanding:
+    """Merge Whisper/hearing, turn interpretation, and optional audio-sidecar signals."""
+
+    del memory_context
+
+    is_correction = bool(audio_signals.is_correction or interpretation.is_correction)
+    is_teaching = bool(
+        audio_signals.is_teaching
+        or interpretation.intent_type in {"teach_word", "give_example", "regional_variation"}
+    )
+    primary_lang = audio_signals.primary_language or hearing.language or "ne"
+    topic = (
+        audio_signals.topic
+        if audio_signals.model_confidence > 0.5 and audio_signals.topic
+        else interpretation.active_topic
+    )
+    signal_confidences = {
+        "stt": hearing.confidence,
+        "audio_model": audio_signals.model_confidence,
+        "dialect": audio_signals.dialect_confidence,
+    }
+
+    return InputUnderstanding(
+        turn_id=turn_id,
+        primary_language=primary_lang,
+        secondary_languages=audio_signals.secondary_languages or [],
+        code_switch_ratio=float(audio_signals.code_switch_ratio or 0.0),
+        topic=topic or "everyday_basics",
+        tone=audio_signals.tone or "neutral",
+        emotion=audio_signals.emotion or interpretation.emotion_hint or "neutral",
+        is_correction=is_correction,
+        is_teaching=is_teaching,
+        taught_terms=interpretation.taught_terms,
+        register_estimate=audio_signals.register_estimate or interpretation.register_hint,
+        dialect_guess=audio_signals.dialect_guess,
+        dialect_confidence=float(audio_signals.dialect_confidence or 0.0),
+        speech_rate=audio_signals.speech_rate or "medium",
+        prosody_pattern=audio_signals.prosody_pattern or "neutral",
+        pronunciation_style=audio_signals.pronunciation_style or "standard_spoken",
+        transcript_confidence=float(hearing.confidence),
+        learning_allowed=hearing.learning_allowed,
+        conversation_allowed=hearing.conversation_allowed,
+        signal_confidences=signal_confidences,
+    )
+
+
+def analyze_input(hearing: HearingResult, interpretation: TurnInterpretation) -> InputUnderstanding:
+    """Backward-compatible text-first understanding path used by older services and tests."""
+    audio_signals = _fallback_audio_signals(hearing, interpretation)
+    return merge_signals(
+        turn_id="legacy-analyze-input",
+        hearing=hearing,
+        interpretation=interpretation,
+        audio_signals=audio_signals,
+        memory_context=None,
     )
