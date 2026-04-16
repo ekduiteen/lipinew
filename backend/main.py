@@ -58,6 +58,9 @@ async def _summary_rebuild_loop() -> None:
 async def lifespan(app: FastAPI):
     logger.info("LIPI backend starting (env=%s)", settings.environment)
 
+    summary_task = None
+    learning_task = None
+
     try:
         # Validate JWT_SECRET is securely configured (defensive check)
         if not settings.jwt_secret or len(settings.jwt_secret) < 32:
@@ -67,19 +70,6 @@ async def lifespan(app: FastAPI):
             )
         logger.debug("JWT_SECRET validation passed")
 
-        # Run database migrations (Alembic — replaces Base.metadata.create_all)
-        from alembic.config import Config as AlembicConfig
-        from alembic.command import upgrade as alembic_upgrade
-
-        try:
-            alembic_cfg = AlembicConfig("alembic.ini")
-            await asyncio.wait_for(asyncio.to_thread(alembic_upgrade, alembic_cfg, "head"), timeout=60.0)
-            logger.info("Database migrations applied")
-        except asyncio.TimeoutError:
-            logger.warning("Database migration timed out after 60s (schema may be up-to-date)")
-        except Exception as exc:
-            logger.warning("Database migration error (schema may be up-to-date): %s", exc)
-
         # Validate Valkey is reachable before serving traffic
         try:
             await valkey.ping()
@@ -87,9 +77,13 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Valkey unhealthy at startup: %s", exc)
 
+        # Initialize HTTP client for async requests
         app.state.http = httpx.AsyncClient(timeout=settings.ml_timeout)
+
+        # Start background tasks
         summary_task = asyncio.create_task(_summary_rebuild_loop())
         learning_task = asyncio.create_task(learning_svc.run_worker(app.state.http))
+
         logger.info("LIPI backend startup complete - ready for requests")
     except Exception as exc:
         logger.error("Fatal error during startup: %s", exc, exc_info=True)
@@ -99,11 +93,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("LIPI backend shutting down")
-        try:
+        if summary_task:
             summary_task.cancel()
+        if learning_task:
             learning_task.cancel()
-        except NameError:
-            pass
         try:
             await app.state.http.aclose()
         except (AttributeError, NameError):
@@ -118,9 +111,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-# Temporarily disabled lifespan for debugging startup issues
-# app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
-app = FastAPI(title="LIPI Backend", version="0.1.0")
+app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
 
 # ─── Rate Limiting ───────────────────────────────────────────────────────────────
 app.state.limiter = limiter
