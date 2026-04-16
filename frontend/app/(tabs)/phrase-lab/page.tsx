@@ -43,7 +43,7 @@ export default function PhraseLabPage() {
         return;
       }
 
-      const res = await fetch("/api/phrases/next", {
+      const res = await fetch("http://localhost:8000/api/phrases/next", {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -84,7 +84,7 @@ export default function PhraseLabPage() {
       formData.append("phrase_id", phrase.id);
       formData.append("reason", "user_skipped");
       
-      const res = await fetch("/api/phrases/skip", {
+      const res = await fetch("http://localhost:8000/api/phrases/skip", {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
         body: formData
@@ -134,7 +134,7 @@ export default function PhraseLabPage() {
     mediaRecorderRef.current?.stream.getTracks().forEach(t => t.stop());
 
     try {
-      const res = await fetch("/api/phrases/submit-audio", {
+      const res = await fetch("http://localhost:8000/api/phrases/submit-audio", {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
         body: formData

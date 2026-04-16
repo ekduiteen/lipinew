@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const token = request.headers.get("authorization");
+  const authHeader = request.headers.get("authorization");
 
-  if (!token) {
+  console.log("Phrase API - Auth header:", authHeader ? "present" : "missing");
+
+  if (!authHeader) {
+    console.log("Phrase API - No auth header, returning 401");
     return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });
   }
 
   try {
     const backendUrl = process.env.BACKEND_URL || "http://backend:8000";
+    console.log("Phrase API - Forwarding to:", backendUrl);
+
     const response = await fetch(`${backendUrl}/api/phrases/next`, {
       method: "GET",
       headers: {
-        "Authorization": token,
+        "Authorization": authHeader,
         "Content-Type": "application/json",
       },
     });
