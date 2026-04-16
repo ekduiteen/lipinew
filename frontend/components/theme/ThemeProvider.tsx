@@ -25,12 +25,22 @@ type Ctx = {
 const ThemeCtx = createContext<Ctx | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("pastel");
+  // Read directly from the DOM attribute (already set by the blocking script)
+  // so state is correct from the first render — no flash, no useEffect setState.
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "pastel";
+    const attr = document.documentElement.getAttribute("data-theme") as Theme | null;
+    return THEMES.includes(attr as Theme) ? (attr as Theme) : "pastel";
+  });
 
   useEffect(() => {
+    // Sync in case the blocking script missed (e.g., localStorage blocked)
     const stored = (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? "pastel";
-    setThemeState(stored);
-    document.documentElement.setAttribute("data-theme", stored);
+    if (stored !== theme) {
+      setThemeState(stored);
+      document.documentElement.setAttribute("data-theme", stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setTheme = (t: Theme) => {
