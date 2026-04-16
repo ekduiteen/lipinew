@@ -32,9 +32,32 @@ export default function PhraseLabPage() {
   const loadNextPhrase = async () => {
     setState("LOADING");
     try {
+      const token = getToken();
+      if (!token) {
+        setPhrase({
+          id: "",
+          text_en: "Please sign in to start teaching.",
+          text_ne: "सिक्षण गर्न कृपया साइन इन गर्नुहोस्।"
+        });
+        setState("PROMPT");
+        return;
+      }
+
       const res = await fetch("/api/phrases/next", {
-        headers: { Authorization: `Bearer ${getToken()}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
+
+      if (!res.ok) {
+        console.error(`API error: ${res.status}`);
+        setPhrase({
+          id: "",
+          text_en: "Connection error. Please try again.",
+          text_ne: "जडान त्रुटि। कृपया फेरि प्रयास गर्नुहोस्।"
+        });
+        setState("PROMPT");
+        return;
+      }
+
       const data = await res.json();
       if (!data.id) {
         setPhrase({ id: "", text_en: "You're all out of phrases!", text_ne: "तपाईंले सबै वाक्यांशहरू सक्नुभयो!"});
@@ -44,6 +67,11 @@ export default function PhraseLabPage() {
       setState("PROMPT");
     } catch (e) {
       console.error(e);
+      setPhrase({
+        id: "",
+        text_en: "Error loading phrases",
+        text_ne: "वाक्यांश लोड गर्न त्रुटि"
+      });
       setState("PROMPT");
     }
   };
