@@ -1,4 +1,4 @@
-# LLM Selection: Qwen 3.5 vs Gemma 4 vs Llama 3.3 405B
+# LLM Selection: Gemma 3.5 vs Gemma 4 vs Llama 3.3 405B
 
 **Decision**: Model-agnostic architecture with benchmarking framework. Deploy benchmark winner, fallback to safe default.
 
@@ -14,7 +14,7 @@ We need an LLM that:
 5. Has **<2s inference latency** (real-time chat requirement)
 
 At knowledge cutoff (Feb 2025), the top candidates are:
-- **Qwen 3.5** (201 languages, excellent Devanagari support)
+- **Gemma 3.5** (201 languages, excellent Devanagari support)
 - **Gemma 4** (140 languages, newer architecture)
 - **Llama 3.3 405B** (405B parameters, most capable)
 
@@ -22,7 +22,7 @@ At knowledge cutoff (Feb 2025), the top candidates are:
 
 ## Model Comparison Matrix
 
-| Dimension | Qwen 3.5 | Gemma 4 | Llama 3.3 405B |
+| Dimension | Gemma 3.5 | Gemma 4 | Llama 3.3 405B |
 |-----------|----------|---------|----------------|
 | **Parameters** | 70B | TBD | 405B |
 | **Context Window** | 4K | 8K | 8K |
@@ -205,7 +205,7 @@ results = {
 ║             LLM Nepali Evaluation - April 2026               ║
 ╚════════════════════════════════════════════════════════════════╝
 
-Model: Qwen 3.5 70B (float16, vLLM)
+Model: Gemma 3.5 70B (float16, vLLM)
 Hardware: 5× NVIDIA L40S (tensor parallel)
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -249,14 +249,14 @@ COMPARISON vs Llama 3.3 405B:
         │ (1-2 weeks)             │
         └────┬────────────────────┘
              │
-             ├─ Qwen 3.5: 89.3/100 ✓
+             ├─ Gemma 3.5: 89.3/100 ✓
              ├─ Gemma 4: TBD
              └─ Llama 3.3: TBD
              
              ▼
     ┌──────────────────────────────┐
     │ Select highest scorer        │
-    │ OR Qwen if tied              │
+    │ OR Gemma if tied              │
     └────┬─────────────────────────┘
          │
          ▼
@@ -275,7 +275,7 @@ COMPARISON vs Llama 3.3 405B:
          │
          ├─ Yes → Deploy to production ✓
          │
-         └─ No → Fallback to Qwen 3.5 (safe default)
+         └─ No → Fallback to Gemma 3.5 (safe default)
 ```
 
 ---
@@ -284,7 +284,7 @@ COMPARISON vs Llama 3.3 405B:
 
 Each model may need slight adjustments:
 
-### For Qwen 3.5
+### For Gemma 3.5
 
 ```
 तपाई LIPI हुनुहुन्छ — एक नेपाली भाषा सिक्दै गरेको AI विद्यार्थी।
@@ -330,7 +330,7 @@ Respond in Nepali ALWAYS.
 ```python
 # config.py
 LLM_MODEL = os.getenv("LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
-# Options: "Qwen/Qwen3-70B", "google/gemma-4-??", "meta-llama/Llama-3.3-70B-Instruct"
+# Options: "Gemma/Gemma3-70B", "google/gemma-4-??", "meta-llama/Llama-3.3-70B-Instruct"
 
 # services/llm.py
 async def generate_response(prompt: str) -> str:
@@ -352,7 +352,7 @@ vllm-server:
 
 # Swap models at runtime:
 # docker-compose down
-# LLM_MODEL="Qwen/Qwen3-70B" docker-compose up vllm-server
+# LLM_MODEL="Gemma/Gemma3-70B" docker-compose up vllm-server
 ```
 
 ---
@@ -360,7 +360,7 @@ vllm-server:
 ## Benchmarking Timeline
 
 **Week 1-2**: Implement benchmark framework (llm_nepali_eval.py)
-**Week 3**: Run tests on Qwen 3.5 (baseline, already known good)
+**Week 3**: Run tests on Gemma 3.5 (baseline, already known good)
 **Week 4**: Run tests on Gemma 4 (newer, might be better)
 **Week 5**: Run tests on Llama 3.3 405B (largest, slowest)
 **Week 6**: Analyze results, select winner, integrate
@@ -369,15 +369,15 @@ vllm-server:
 
 ## Success Criteria
 
-✓ **Benchmark winner beats Qwen 3.5 by >5 points** → Deploy that model  
-✓ **No model beats Qwen 3.5** → Deploy Qwen 3.5 (safe choice)  
+✓ **Benchmark winner beats Gemma 3.5 by >5 points** → Deploy that model  
+✓ **No model beats Gemma 3.5** → Deploy Gemma 3.5 (safe choice)  
 ✓ **Winner integrates without code changes** → Model-agnostic works!  
 ✓ **Inference <2s per response** → Real-time chat works  
 ✓ **Nepali output >92% pure** → Language integrity maintained
 
 ---
 
-## Future: When Llama 4, Qwen 4, etc. release
+## Future: When Llama 4, Gemma 4, etc. release
 
 ```python
 # Just update the environment variable!

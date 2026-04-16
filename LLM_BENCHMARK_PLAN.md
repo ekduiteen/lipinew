@@ -1,10 +1,10 @@
-# LLM Benchmark Plan: Qwen 3.5 vs Gemma 4
+# LLM Benchmark Plan: Gemma 3.5 vs Gemma 4
 ## Focus: Question Generation & Student Behavior
 
 **Status**: Ready to Execute  
 **Timeline**: 2-3 weeks  
 **Hardware**: Single GPU testing (can iterate quickly)  
-**Models**: Qwen 3.5 70B vs Gemma 4
+**Models**: Gemma 3.5 70B vs Gemma 4
 
 ---
 
@@ -231,12 +231,12 @@ Target: <2 seconds per response
 
 ### Week 1: Setup
 
-- [ ] Install vLLM + Qwen 3.5 weights
+- [ ] Install vLLM + Gemma 3.5 weights
 - [ ] Install vLLM + Gemma 4 weights
 - [ ] Create test harness (Python script to run tests)
 - [ ] Prepare system prompt in Nepali (student roleplay)
 
-### Week 2: Test Qwen 3.5
+### Week 2: Test Gemma 3.5
 
 - [ ] Run 15 question generation tests
 - [ ] Run 10 student behavior tests
@@ -260,7 +260,7 @@ Target: <2 seconds per response
 ║          LLM Question Generation Benchmark Results            ║
 ╚═══════════════════════════════════════════════════════════════╝
 
-MODEL: Qwen 3.5 70B
+MODEL: Gemma 3.5 70B
 HARDWARE: Single L40S GPU
 
 ┌───────────────────────────────────────────────────────────────┐
@@ -290,24 +290,24 @@ COMPARISON vs Gemma 4:
 
 ## Decision Framework
 
-**If Qwen wins**:
+**If Gemma wins**:
 ```
-Score: Qwen 94 vs Gemma 87
-Decision: Use Qwen 3.5 for production
+Score: Gemma 94 vs Gemma 87
+Decision: Use Gemma 3.5 for production
 GPU allocation: 1× GPU (not 5), frees 4 GPUs for training
 ```
 
 **If Gemma wins**:
 ```
-Score: Gemma 92 vs Qwen 88
+Score: Gemma 92 vs Gemma 88
 Decision: Use Gemma 4 for production
 Benefit: Faster (256 tok/s vs 128)
 ```
 
 **If very close**:
 ```
-Score: Qwen 91 vs Gemma 90
-Decision: Use Qwen (cheaper inference, proven)
+Score: Gemma 91 vs Gemma 90
+Decision: Use Gemma (cheaper inference, proven)
 Or: A/B test in Phase 1 with users
 ```
 

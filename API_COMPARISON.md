@@ -238,7 +238,7 @@ Cost per DAU:
 | **AWS Bedrock Claude** | Claude 3 | $15/1M input | 200K | 2-3s | Excellent | Excellent |
 | **Together AI** | Llama 2 | $0.50/1M tokens | 4K | 1-2s | Good | Moderate |
 | **Groq** | Mixtral | $0.27/1M tokens | 32K | <500ms | Good | Moderate |
-| **Self-Hosted vLLM** | Llama/Qwen | $0 (GPU) | 4-8K | 1-2s | Good | Good |
+| **Self-Hosted vLLM** | Llama/Gemma | $0 (GPU) | 4-8K | 1-2s | Good | Good |
 
 ### LLM Pricing Breakdown
 
@@ -514,12 +514,12 @@ APIs:
 
 Self-Hosted:
 ├─ Llama 3.3 70B: 85/100
-├─ Qwen 3.5: 90/100 (if available)
+├─ Gemma 3.5: 90/100 (if available)
 └─ Gemma 4: 87/100 (if available)
 
 Recommendation:
-├─ For best Nepali quality: Claude 3 (API) or Qwen 3.5 (self-hosted)
-├─ For best value: Qwen 3.5 self-hosted
+├─ For best Nepali quality: Claude 3 (API) or Gemma 3.5 (self-hosted)
+├─ For best value: Gemma 3.5 self-hosted
 └─ Trade-off: API = simpler, Self-hosted = cheaper
 ```
 
@@ -549,7 +549,7 @@ Phase 1 (MVP, <1,000 DAU):
 Phase 2 (Growth, 1,000-10,000 DAU):
 ├─ STT: Self-hosted faster-whisper
 ├─ TTS: Custom VITS (trained during Phase 1-2)
-├─ LLM: Start with API (Claude), add self-hosted Qwen as fallback
+├─ LLM: Start with API (Claude), add self-hosted Gemma as fallback
 ├─ Cost: $50-100k/month
 │
 ├─ Rationale:
@@ -565,7 +565,7 @@ Phase 2 (Growth, 1,000-10,000 DAU):
 Phase 3 (Scale, 10,000+ DAU):
 ├─ STT: Self-hosted + dialect LoRA
 ├─ TTS: Self-hosted custom VITS + speaker-specific models
-├─ LLM: Self-hosted (Qwen, Gemma, or Llama)
+├─ LLM: Self-hosted (Gemma, Gemma, or Llama)
 ├─ Cost: $100-150k/month
 │
 ├─ Rationale:
@@ -598,7 +598,7 @@ Phase 3 (Scale, 10,000+ DAU):
 ```
 ├─ STT: Self-hosted faster-whisper (GPU 5)
 ├─ TTS: Phase 1 mms-tts OR keep ElevenLabs during VITS training
-├─ LLM: Self-hosted Qwen 3.5 (GPU 0-4) OR API fallback
+├─ LLM: Self-hosted Gemma 3.5 (GPU 0-4) OR API fallback
 ├─ GPU Cost: $40k/month
 ├─ API Cost: $5-10k/month (fallbacks only)
 └─ Total: $45-50k/month (same as Phase 1!)

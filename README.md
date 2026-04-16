@@ -70,6 +70,7 @@ Main engines:
 - Post-Generation Guard
 - Training Data Capture System
 - Phrase Lab Pipeline
+- Heritage Prompt Generator
 
 Key files:
 - [backend/routes/sessions.py](backend/routes/sessions.py)
@@ -89,6 +90,8 @@ Key files:
 - [backend/services/training_capture.py](backend/services/training_capture.py)
 - [backend/services/audio_storage.py](backend/services/audio_storage.py)
 - [backend/services/learning.py](backend/services/learning.py)
+- [backend/services/heritage_prompt.py](backend/services/heritage_prompt.py)
+- [backend/services/phrase_pipeline.py](backend/services/phrase_pipeline.py)
 
 Every teacher turn now produces structured capture layers:
 - raw data
@@ -97,9 +100,10 @@ Every teacher turn now produces structured capture layers:
 
 Those are stored alongside the `messages` record using JSONB fields, plus correction graph, session memory, teacher signals, async learning updates, and async speaker-embedding capture into `speaker_embeddings` with lightweight incremental cluster assignment.
 
-LIPI now has two collection modes:
-- `Teach`: open-ended student/teacher conversation
-- `Phrase Lab`: structured phrase and variation capture for cleaner supervised data
+LIPI now has three collection modes:
+- `Teach`: open-ended student/teacher conversation (original)
+- `Heritage`: structured dialect/register capture via guided prompts (NEW)
+- `Phrase Lab`: structured phrase and variation capture for cleaner supervised data (NEW)
 
 The newest learning direction is also more conservative:
 - correction-derived rules are moving toward a review queue instead of being blindly trusted
@@ -123,6 +127,8 @@ This repo used to have many overlapping setup/status/handover files. The canonic
   Product build order and upcoming work.
 - [HANDOVER_TO_CODEX.md](HANDOVER_TO_CODEX.md)
   Short current-state handover for the next engineer.
+- [SYSTEM_STATUS_REPORT.md](SYSTEM_STATUS_REPORT.md)
+  Comprehensive health check and deployment status (updated regularly).
 
 If you add a new service, architecture change, deployment pattern, or workflow, update one of the docs above instead of creating a new summary file.
 

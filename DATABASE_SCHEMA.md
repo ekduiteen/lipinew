@@ -198,11 +198,13 @@ Current use:
 
 ## Migrations
 
-Recent important migrations:
-- `91ba4c4fe766_initial_schema.py`
-- `d3f4c6b8a921_curriculum_and_diversity_engine.py`
-- `e4b7f9a21c10_intelligence_layer_core.py`
-- `f1c2d8b44a11_training_data_capture_signals.py`
+Recent important migrations (in order):
+- `91ba4c4fe766_initial_schema.py` — Core tables (users, sessions, messages)
+- `d3f4c6b8a921_curriculum_and_diversity_engine.py` — Curriculum state and coverage
+- `e4b7f9a21c10_intelligence_layer_core.py` — Correction events, session memory, teacher signals
+- `f1c2d8b44a11_training_data_capture_signals.py` — Training data envelopes (raw/derived/high-value)
+- `a7c6e1d9f210_phrase_lab_and_review_queue.py` — Phrase Lab tables + review queue (NEW)
+- `b8d7e4c3f920_heritage_sessions.py` — Heritage mode tables (NEW)
 
 ## Practical Rule
 

@@ -1,8 +1,17 @@
-# 16-Week MVP Roadmap: From Planning to Production
+# LIPI Roadmap (Updated 2026-04-17)
+
+## Current Status: PHASES 0-3 COMPLETE ✅
 
 **Target**: Production-ready LIPI for 1,000+ DAU by end of Q2 2026  
-**Team Size**: 4-5 engineers (backend, ML, frontend, DevOps)  
-**Definition of Done**: Real teachers can have 5+ minute conversations, LIPI learns from corrections, confidence scores tracked, all 6 challenges solved
+**Achieved**: Core MVP complete with 3 data-collection lanes (Teach, Heritage, Phrase Lab)
+**Definition of Done**: ✅ Real teachers can have 5+ minute conversations  
+✅ LIPI learns from corrections  
+✅ Confidence scores tracked  
+✅ Multi-engine backend intelligence live  
+✅ Heritage feature functional  
+✅ Phrase Lab structured capture working
+
+**Note**: This document outlines the original 16-week plan. We are now 4+ weeks into actual execution with Phases 0-3 substantially complete. See [SYSTEM_STATUS_REPORT.md](SYSTEM_STATUS_REPORT.md) for current deployment status.
 
 ---
 

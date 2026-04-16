@@ -28,7 +28,7 @@ Assuming 2× hosts (5 GPUs each):
 ### Tier 1: Real-Time Chat (GPUs 0-4)
 ```
 GPUs 0-4 (240GB): vLLM Inference Server
-├─ Model: Qwen 3.5 or Gemma 4 (201+ languages)
+├─ Model: Gemma 3.5 or Gemma 4 (201+ languages)
 ├─ Tensor Parallelism: 5-way split (48GB per GPU)
 ├─ Batch Size: 64 concurrent requests
 ├─ Inference Latency: <2 seconds per response
@@ -229,7 +229,7 @@ Health Check: /health → {cuda_available, models_ready}
 Service: vLLM OpenAI API Server
 Port: 8080
 GPU Allocation: GPUs 0-4 (240GB total, tensor parallel)
-Model: Qwen 3.5 70B or Gemma 4 (configurable)
+Model: Gemma 3.5 70B or Gemma 4 (configurable)
 Deployment:
   python -m vllm.entrypoints.openai_api_server \
     --model {{SELECTED_MODEL}} \
@@ -241,7 +241,7 @@ Key Endpoints:
 Batch Size: 64 concurrent requests
 Latency: <2 seconds per response
 Throughput: 256 tokens/sec (aggregate)
-Context Window: 4K (Qwen) or 8K (Gemma)
+Context Window: 4K (Gemma) or 8K (Gemma)
 Temperature: 0.7 (creative but coherent)
 Health Check: GET /v1/models → {available_models}
 ```
@@ -445,7 +445,7 @@ Region 2 (EU):    5× L40S (read replicas)
 | **Personnel** | $15,000/mo | $15,000/mo |
 | **STT API** | $0 (Self-hosted Whisper on 1x shared GPU) | $0 (Self-hosted on L40S) |
 | **TTS API (Fallback)** | $200/mo (ElevenLabs tier) | $0 (Custom VITS) |
-| **LLM Inference API** | $500/mo (Together AI/Groq pay-as-you-go) | $0 (Self-hosted Qwen/Gemma) |
+| **LLM Inference API** | $500/mo (Together AI/Groq pay-as-you-go) | $0 (Self-hosted Gemma/Gemma) |
 | **Total Estimated (1k DAU)** | **$15,800/month** | **$25,500/month** |
 
 **Key insight**: The Hybrid API approach explicitly derisks the MVP by allowing the project to function at <1,000 DAU without committing to $10,000+/mo in fixed infrastructure costs. Fully self-hosted breaks even at ~10,000 DAU, at which point the 10x L40S cluster should be procured.

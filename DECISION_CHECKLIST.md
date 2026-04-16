@@ -8,11 +8,11 @@
 
 ## Decision 1: LLM Selection ✅ SIMPLIFIED
 
-### Decision: Test Qwen 3.5 vs Gemma 4 (2-3 weeks)
+### Decision: Test Gemma 3.5 vs Gemma 4 (2-3 weeks)
 
 | Item | Status | Blocker | Resolution |
 |------|--------|---------|-----------|
-| Models to test | ✓ Decided | — | Qwen 3.5 & Gemma 4 (skip Llama 3.3) |
+| Models to test | ✓ Decided | — | Gemma 3.5 & Gemma 4 (skip Llama 3.3) |
 | Test focus | ✓ Clarified | — | Question generation, not accuracy |
 | Test cases | ✓ Created | — | 40 focused tests (15+10+8+1) |
 | Test data (Nepali) | ✓ Ready | — | Nepali prompts in LLM_BENCHMARK_PLAN.md |
@@ -55,10 +55,10 @@
 | docker-compose.yml | ✓ Complete | — | All services defined in DEPLOYMENT.md |
 | nginx.conf | ❌ Missing | **CRITICAL** | Create load balancer config |
 | init-db.sql | ❌ Missing | **CRITICAL** | Generate from DATABASE_SCHEMA.md |
-| LLM provider decision | ✓ Decided | — | Will choose Qwen/Gemma after benchmarking |
+| LLM provider decision | ✓ Decided | — | Will choose Gemma/Gemma after benchmarking |
 | vLLM setup | ✓ Simplified | — | Single GPU, no tensor parallelism needed |
 | Ollama (optional) | ✓ Keep | — | Keep as fallback in docker-compose |
-| GPU allocation | ✓ Updated | — | GPU 0: vLLM (Qwen/Gemma), GPU 1-2: ML (STT/TTS), GPU 3-9: Training |
+| GPU allocation | ✓ Updated | — | GPU 0: vLLM (Gemma/Gemma), GPU 1-2: ML (STT/TTS), GPU 3-9: Training |
 | Health checks | ✓ Complete | — | All services have health endpoints |
 | SSL/TLS | ⚠️ Incomplete | **HIGH** | Document certificate generation |
 | Monitoring | ✓ Partial | **MEDIUM** | Expand Prometheus.yml config |
@@ -81,7 +81,7 @@
 
 | Component | Old | New | Reason |
 |-----------|-----|-----|--------|
-| vLLM GPUs | 5 (tensor parallel) | 1 | Qwen/Gemma 70B fits single GPU |
+| vLLM GPUs | 5 (tensor parallel) | 1 | Gemma/Gemma 70B fits single GPU |
 | ML Server (STT/TTS) | GPU 5-7 | GPU 1-2 | Reduced needed |
 | Training (VITS/LoRA) | GPU 8-9 | GPU 3-9 | More capacity for learning |
 | Ollama fallback | Optional | Keep | Backup LLM option |
@@ -94,7 +94,7 @@
 
 **GPU Allocation (Final)**:
 ```
-GPU 0: vLLM (Qwen 3.5 or Gemma 4) — 70B model
+GPU 0: vLLM (Gemma 3.5 or Gemma 4) — 70B model
 GPU 1: STT (faster-whisper with LoRA adapters)
 GPU 2: TTS (facebook/mms-tts-npi → custom VITS)
 GPU 3-9: Training (VITS multi-speaker, Whisper LoRA)
@@ -114,7 +114,7 @@ WEEK 1 (Setup)
 └─ [1.4] Prepare Nepali test prompts (Day 5)
 
 WEEK 2 (Test & Decide)
-├─ [2.1] Benchmark Qwen 3.5 (40 tests)
+├─ [2.1] Benchmark Gemma 3.5 (40 tests)
 ├─ [2.2] Benchmark Gemma 4 (40 tests)
 ├─ [2.3] Compare scores & select winner
 └─ [2.4] Update docker-compose.yml with chosen model
