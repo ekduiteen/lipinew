@@ -118,7 +118,9 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
+# Temporarily disabled lifespan for debugging startup issues
+# app = FastAPI(title="LIPI Backend", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="LIPI Backend", version="0.1.0")
 
 # ─── Rate Limiting ───────────────────────────────────────────────────────────────
 app.state.limiter = limiter
