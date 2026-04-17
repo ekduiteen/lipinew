@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cache import valkey
 from config import settings
 from db.connection import SessionLocal
+from models.intelligence import ReviewQueueItem
 
 if TYPE_CHECKING:
     pass
@@ -59,6 +61,9 @@ _LEARNER_META_REPLY_MARKERS = (
     "i understand,",
     "oh, i understand",
 )
+_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]")
+_STOPWORDS = {"हो", "छ", "र", "त", "the", "and", "a", "an", "to"}
 
 
 # ─── Extraction prompt ───────────────────────────────────────────────────────
@@ -376,6 +381,7 @@ async def _run(
     async with SessionLocal() as db:
         streak = await points_svc.get_current_streak(db, user_id)
         new_word_count = 0
+        low_trust_count = 0
 
         for entry in words[:5]:
             word = str(entry.get("word", "")).strip().lower()
@@ -383,6 +389,32 @@ async def _run(
             definition_en = str(entry.get("definition_en", "")).strip()[:500]
 
             if not word or len(word) > 255:
+                continue
+
+            is_valid, validation_reason = _validate_extraction(
+                word=word,
+                language=language,
+                teacher_text=teacher_text,
+            )
+            if not is_valid:
+                low_trust_count += await _flag_low_trust_extraction(
+                    db=db,
+                    teacher_id=user_id,
+                    session_id=session_id,
+                    teacher_text=teacher_text,
+                    word=word,
+                    language=language,
+                    reason=validation_reason,
+                    stt_confidence=stt_confidence,
+                    audio_path=audio_path,
+                )
+                logger.info(
+                    "Rejected extraction word=%r language=%s reason=%s session=%s",
+                    word,
+                    language,
+                    validation_reason,
+                    session_id,
+                )
                 continue
 
             new_word_count += await _upsert_vocabulary(
@@ -439,6 +471,8 @@ async def _run(
             await db.commit()
         elif speaker_embedding_stored:
             await db.commit()
+        elif low_trust_count > 0:
+            await db.commit()
 
         if turn_interpretation.get("is_correction"):
             logger.info(
@@ -462,6 +496,58 @@ async def _run(
                 user_id,
                 speaker_embedding_reason,
             )
+
+
+def _validate_extraction(*, word: str, language: str, teacher_text: str) -> tuple[bool, str]:
+    normalized_word = word.strip().lower()
+    normalized_text = teacher_text.strip().lower()
+    if not normalized_word:
+        return False, "empty_word"
+    if len(normalized_word) <= 1:
+        return False, "too_short"
+    if normalized_word in _STOPWORDS:
+        return False, "stopword"
+    if language == "ne" and not _DEVANAGARI_RE.search(normalized_word):
+        if normalized_word not in normalized_text:
+            return False, "script_mismatch"
+    if language == "en" and not _LATIN_WORD_RE.search(normalized_word):
+        return False, "script_mismatch"
+    if normalized_word not in normalized_text:
+        return False, "not_in_transcript"
+    return True, "ok"
+
+
+async def _flag_low_trust_extraction(
+    *,
+    db: AsyncSession,
+    teacher_id: str,
+    session_id: str,
+    teacher_text: str,
+    word: str,
+    language: str,
+    reason: str,
+    stt_confidence: float,
+    audio_path: str | None,
+) -> int:
+    db.add(
+        ReviewQueueItem(
+            id=str(uuid.uuid4()),
+            source_audio_path=audio_path,
+            source_transcript=teacher_text[:1500],
+            teacher_id=teacher_id,
+            session_id=session_id or None,
+            extracted_claim=word,
+            extraction_metadata={
+                "review_kind": "low_trust_extraction",
+                "reason": reason,
+                "language_key": language,
+            },
+            confidence=min(max(stt_confidence, 0.05), 0.49),
+            model_source="learning_validation_guard",
+            status="pending_review",
+        )
+    )
+    return 1
 
 
 async def _upsert_vocabulary(
@@ -492,14 +578,14 @@ async def _upsert_vocabulary(
     if row is None:
         vocab_id = str(uuid.uuid4())
         previous_confidence = 0.0
-        new_confidence = min(stt_confidence, 0.9)
+        new_confidence = min(stt_confidence, 0.6)
         await db.execute(
             text(
                 """
                 INSERT INTO vocabulary_entries
-                    (id, word, language, definition, confidence, times_taught, pioneer_teacher_id)
+                    (id, word, language, definition, confidence, times_taught, pioneer_teacher_id, distinct_teacher_count, admin_approved, created_at, updated_at)
                 VALUES
-                    (:id, :word, :lang, :defn, :conf, 1, :pioneer)
+                    (:id, :word, :lang, :defn, :conf, 1, :pioneer, 1, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """
             ),
             {
@@ -522,18 +608,35 @@ async def _upsert_vocabulary(
         )
         confidence_value = confidence_row.scalar()
         previous_confidence = float(confidence_value or 0.0)
-        new_confidence = min(previous_confidence + 0.05, 1.0)
+        teacher_count_row = await db.execute(
+            text("SELECT COUNT(DISTINCT teacher_id) FROM vocabulary_teachers WHERE vocabulary_id = :id"),
+            {"id": vocab_id},
+        )
+        distinct_teachers = int(teacher_count_row.scalar() or 0)
+        teacher_seen_row = await db.execute(
+            text("SELECT 1 FROM vocabulary_teachers WHERE vocabulary_id = :id AND teacher_id = :teacher_id LIMIT 1"),
+            {"id": vocab_id, "teacher_id": user_id},
+        )
+        teacher_already_seen = teacher_seen_row.scalar() is not None
+        if not teacher_already_seen:
+            distinct_teachers += 1
+        cap = 0.95 if distinct_teachers >= 2 else 0.70
+        new_confidence = min(previous_confidence + 0.05, cap)
         await db.execute(
             text(
                 """
                 UPDATE vocabulary_entries
                 SET times_taught = times_taught + 1,
-                    confidence   = LEAST(confidence + 0.05, 1.0),
-                    updated_at   = NOW()
+                    confidence   = CASE
+                        WHEN confidence + 0.05 < :cap THEN confidence + 0.05
+                        ELSE :cap
+                    END,
+                    distinct_teacher_count = :distinct_teacher_count,
+                    updated_at   = CURRENT_TIMESTAMP
                 WHERE id = :id
                 """
             ),
-            {"id": vocab_id},
+            {"id": vocab_id, "cap": cap, "distinct_teacher_count": distinct_teachers},
         )
 
     await db.execute(
@@ -542,7 +645,7 @@ async def _upsert_vocabulary(
             INSERT INTO knowledge_confidence_history
                 (id, teacher_id, session_id, knowledge_key, language_key, previous_confidence, new_confidence, change_reason, is_contradiction_hook, created_at)
             VALUES
-                (:id, :teacher_id, :session_id, :knowledge_key, :language_key, :previous_confidence, :new_confidence, :change_reason, false, NOW())
+                (:id, :teacher_id, :session_id, :knowledge_key, :language_key, :previous_confidence, :new_confidence, :change_reason, false, CURRENT_TIMESTAMP)
             """
         ),
         {
@@ -561,9 +664,9 @@ async def _upsert_vocabulary(
         text(
             """
             INSERT INTO vocabulary_teachers
-                (id, vocabulary_id, teacher_id, session_id, contribution_type, confidence_added)
+                (id, vocabulary_id, teacher_id, session_id, contribution_type, confidence_added, created_at)
             VALUES
-                (:id, :vid, :tid, :sid, :ctype, :conf)
+                (:id, :vid, :tid, :sid, :ctype, :conf, CURRENT_TIMESTAMP)
             ON CONFLICT DO NOTHING
             """
         ),
@@ -619,7 +722,7 @@ async def _store_usage_rules(
             INSERT INTO usage_rules
                 (id, teacher_id, session_id, topic_key, language_key, rule_type, rule_text, source_text, confidence, created_at)
             VALUES
-                (:id, :teacher_id, :session_id, :topic_key, :language_key, :rule_type, :rule_text, :source_text, :confidence, NOW())
+                (:id, :teacher_id, :session_id, :topic_key, :language_key, :rule_type, :rule_text, :source_text, :confidence, CURRENT_TIMESTAMP)
             """
         ),
         {

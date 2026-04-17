@@ -117,7 +117,8 @@ async def record_correction_event(
             "correction_event_id": event.id,
             "usage_rule_id": rule.id,
             "topic": topic,
-            "wrong_claim": wrong_message.text if wrong_message else ""
+            "wrong_claim": wrong_message.text if wrong_message else "",
+            "language_key": language_key,
         },
         confidence=float(confidence_after or 0.8),
         model_source="hybrid_input_understanding",
@@ -149,3 +150,26 @@ async def get_recent_correction_summary(
         recent_count=len(events),
         last_correction=events[0].corrected_claim if events else None,
     )
+
+
+async def load_approved_rules_for_teacher(
+    db: AsyncSession,
+    *,
+    teacher_id: str,
+    language_key: str | None = None,
+    limit: int = 5,
+) -> list[UsageRule]:
+    """Read admin-approved usage rules so they can be re-injected into future sessions."""
+    stmt = (
+        select(UsageRule)
+        .where(
+            UsageRule.teacher_id == teacher_id,
+            UsageRule.is_approved.is_(True),
+        )
+        .order_by(desc(UsageRule.created_at))
+        .limit(limit)
+    )
+    if language_key:
+        stmt = stmt.where(UsageRule.language_key == language_key)
+    rows = await db.execute(stmt)
+    return list(rows.scalars())

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import get_db
 from dependencies.admin_auth import get_current_admin
 from models.admin_control import AdminAccount
+from models.dataset_gold import GoldRecord
 from models.user import User
 from services.admin_moderation import (
     get_next_review_item,

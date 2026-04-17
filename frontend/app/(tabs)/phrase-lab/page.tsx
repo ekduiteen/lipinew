@@ -72,6 +72,8 @@ export default function PhraseLabPage() {
   const [phrase, setPhrase]         = useState<PhraseData | null>(null);
   const [retryReason, setRetryReason] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [groupId, setGroupId]       = useState<string | null>(null);
+  const [variationType, setVariationType] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef   = useRef<Blob[]>([]);
@@ -80,8 +82,10 @@ export default function PhraseLabPage() {
 
   const loadNextPhrase = async () => {
     setState("LOADING");
+    setGroupId(null);
+    setVariationType(null);
     try {
-      const res = await fetch("http://localhost:8000/api/phrases/next", {
+      const res = await fetch("/api/proxy/phrases/next", {
         credentials: "include",
       });
       const data = await res.json();
@@ -100,7 +104,7 @@ export default function PhraseLabPage() {
       const fd = new FormData();
       fd.append("phrase_id", phrase.id);
       fd.append("reason", "user_skipped");
-      const res = await fetch("http://localhost:8000/api/phrases/skip", {
+      const res = await fetch("/api/proxy/phrases/skip", {
         method: "POST",
         credentials: "include",
         body: fd,
@@ -157,11 +161,20 @@ export default function PhraseLabPage() {
       fd.append("phrase_id", phrase.id);
       fd.append("audio_file", wavBlob, "phrase.wav");
 
-      const res = await fetch("http://localhost:8000/api/phrases/submit-audio", {
+      const isVariation = Boolean(variationType && groupId);
+      if (isVariation) {
+        fd.append("group_id", groupId!);
+        fd.append("variation_type", variationType!);
+      }
+
+      const res = await fetch(
+        isVariation ? "/api/proxy/phrases/submit-variation-audio" : "/api/proxy/phrases/submit-audio",
+        {
         method: "POST",
         credentials: "include",
         body: fd,
-      });
+        }
+      );
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -175,7 +188,12 @@ export default function PhraseLabPage() {
         setRetryReason(data.reason || "Audio unclear. Please try again.");
         setState("RETRY");
       } else {
-        setState("SUCCESS_VARIATION");
+        if (isVariation) {
+          loadNextPhrase();
+        } else {
+          setGroupId(data.group_id ?? null);
+          setState("SUCCESS_VARIATION");
+        }
       }
     } catch (e) {
       console.error("processRecording error:", e);
@@ -184,7 +202,10 @@ export default function PhraseLabPage() {
     }
   };
 
-  const handleVariation = () => loadNextPhrase();
+  const handleVariation = async (nextVariationType: string) => {
+    setVariationType(nextVariationType);
+    await startRecord();
+  };
 
   return (
     <div className="page" style={{ alignItems: "center", justifyContent: "center", gap: "var(--space-8)" }}>
@@ -269,7 +290,7 @@ export default function PhraseLabPage() {
                 key={v.id}
                 className="btn-secondary"
                 style={{ padding: "0.5rem 1rem", fontSize: "var(--text-sm)" }}
-                onClick={handleVariation}
+                onClick={() => handleVariation(v.id)}
               >
                 {v.ne}
               </button>

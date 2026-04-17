@@ -17,6 +17,9 @@ from .intelligence import (
     TeacherCredibilityEvent,
     KnowledgeConfidenceHistory,
     UsageRule,
+    ReviewQueueItem,
+    VocabularyEntry,
+    VocabularyTeacher,
 )
 from .phrases import (
     PhraseGenerationBatch,
@@ -50,6 +53,9 @@ __all__ = [
     "TeacherCredibilityEvent",
     "KnowledgeConfidenceHistory",
     "UsageRule",
+    "ReviewQueueItem",
+    "VocabularyEntry",
+    "VocabularyTeacher",
     "PhraseGenerationBatch",
     "Phrase",
     "PhraseSubmissionGroup",

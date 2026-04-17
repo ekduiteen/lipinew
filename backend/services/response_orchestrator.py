@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
+from models.intelligence import UsageRule
 from services.behavior_policy import BehaviorPolicy
 from services.curriculum import QuestionPlan
 from services.input_understanding import InputUnderstanding
@@ -18,6 +20,17 @@ class ResponsePackage:
     turn_guidance: str
     teacher_summary: str
     memory_summary: str
+
+
+def _build_approved_rules_block(rules: Sequence[UsageRule]) -> str:
+    if not rules:
+        return ""
+    lines = [f"- [{r.language_key}] {r.rule_text[:140]}" for r in rules]
+    return (
+        "## Approved prior teachings from this teacher\n"
+        + "\n".join(lines)
+        + "\nUse these naturally in this session. They were validated by review.\n"
+    )
 
 
 def _build_teacher_summary(teacher_model: TeacherModel) -> str:
@@ -50,9 +63,11 @@ def build_response_package(
     behavior_policy: BehaviorPolicy,
     question_plan: QuestionPlan,
     response_plan: ResponsePlan,
+    approved_rules: Sequence[UsageRule] = (),
 ) -> ResponsePackage:
     teacher_summary = _build_teacher_summary(teacher_model)
     memory_summary = build_memory_summary(session_memory)
+    approved_rules_block = _build_approved_rules_block(approved_rules)
     policy_block = behavior_policy.to_prompt_block()
     intelligence_block = (
         "## Input understanding\n"
@@ -74,7 +89,7 @@ def build_response_package(
     turn_guidance = build_turn_guidance(
         teacher_text,
         detected_language,
-        memory_block=f"{teacher_summary}\n{memory_summary}\n{policy_block}\n{intelligence_block}",
+        memory_block=f"{teacher_summary}\n{memory_summary}\n{approved_rules_block}{policy_block}\n{intelligence_block}",
         question_plan=question_plan,
         response_plan=response_plan,
         teacher_profile=teacher_profile,

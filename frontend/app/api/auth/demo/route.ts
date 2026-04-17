@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getBackendUrl } from "@/lib/backend-url";
 
-const BACKEND =
-  process.env.BACKEND_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://127.0.0.1:8000";
+const BACKEND = getBackendUrl();
 
 interface AuthResponse {
   access_token: string;

@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getBackendUrl } from "@/lib/backend-url";
 
-// NEXT_PUBLIC_ vars are available server-side too; fallback for server context
-const BACKEND =
-  process.env.BACKEND_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:8000";
+const BACKEND = getBackendUrl();
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();

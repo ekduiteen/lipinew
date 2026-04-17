@@ -70,7 +70,7 @@ export default function HeritagePage() {
   const handleStartSession = async (mode: string) => {
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/heritage/sessions/create", {
+      const res = await fetch("/api/heritage/sessions/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -143,8 +143,8 @@ export default function HeritagePage() {
 
     try {
       const endpoint = stage === "PRIMARY"
-        ? `http://localhost:8000/heritage/sessions/${sessionId}/submit_primary`
-        : `http://localhost:8000/heritage/sessions/${sessionId}/submit_followup`;
+        ? `/api/heritage/sessions/${sessionId}/submit_primary`
+        : `/api/heritage/sessions/${sessionId}/submit_followup`;
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -172,7 +172,7 @@ export default function HeritagePage() {
     if (sessionId) {
       const fd = new FormData();
       fd.append("text", "[User Skipped]");
-      await fetch(`http://localhost:8000/heritage/sessions/${sessionId}/submit_followup`, {
+      await fetch(`/api/heritage/sessions/${sessionId}/submit_followup`, {
         method: "POST",
         credentials: "include",
         body: fd,

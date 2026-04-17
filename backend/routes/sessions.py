@@ -143,6 +143,37 @@ def _extract_main_question(text: str) -> str | None:
     return None
 
 
+def _build_cross_session_prompt_context(
+    *,
+    long_term_memory: memory_service_svc.StructuredSessionMemory,
+    approved_rules: list,
+) -> str:
+    topics: list[str] = []
+    if long_term_memory.active_topic:
+        topics.append(long_term_memory.active_topic)
+    topics.extend(long_term_memory.recent_taught_words[-5:])
+    topics = list(dict.fromkeys(topic for topic in topics if topic))
+
+    style_memory = long_term_memory.style_memory or {}
+    register_hint = style_memory.get("register_estimate") or "unknown"
+    speech_rate = style_memory.get("speech_rate") or "unknown"
+    dialect_hint = style_memory.get("dialect_guess") or "unknown"
+    approved_rule_lines = [f"- {rule.rule_text[:120]}" for rule in approved_rules[:3]]
+    prior_corrections = long_term_memory.recent_corrections[-3:]
+
+    return (
+        "\n## Cross-session memory\n"
+        f"- Previous taught words: {', '.join(long_term_memory.recent_taught_words[-6:]) if long_term_memory.recent_taught_words else 'none'}\n"
+        f"- Recent corrections: {', '.join(prior_corrections) if prior_corrections else 'none'}\n"
+        f"- Recent topics: {', '.join(topics) if topics else 'none'}\n"
+        f"- Active language tendency: {long_term_memory.active_language or 'unknown'}\n"
+        f"- Teacher register tendency: {register_hint}\n"
+        f"- Teacher style memory: rate={speech_rate}, dialect={dialect_hint}, style={long_term_memory.user_style}\n"
+        f"- Approved teachings: {'; '.join(approved_rule_lines) if approved_rule_lines else 'none'}\n"
+        "Treat these as durable memory from earlier sessions with the same teacher.\n"
+    )
+
+
 # ─── REST: create session ────────────────────────────────────────────────────
 
 @router.post("/api/sessions")
@@ -199,7 +230,32 @@ async def conversation_ws(
     logger.info("WS connected session=%s user=%s", session_id, user_id)
 
     profile = await _load_tone_profile(user_id)
-    system_prompt = build_system_prompt(profile)
+
+    # Cross-session memory: hydrate previous_topics + carry approved rules so LIPI
+    # behaves as if it remembers what this teacher has already taught.
+    approved_rules: list = []
+    async with SessionLocal() as hydrate_db:
+        long_term = await memory_service_svc.load_teacher_long_term_memory(
+            hydrate_db, teacher_id=user_id
+        )
+        approved_rules = await correction_graph_svc.load_approved_rules_for_teacher(
+            hydrate_db,
+            teacher_id=user_id,
+            language_key=long_term.active_language,
+        )
+    if long_term.recent_taught_words:
+        profile.previous_topics = list(long_term.recent_taught_words)[-6:]
+    if long_term.active_topic:
+        profile.preferred_topics = list(dict.fromkeys([long_term.active_topic, *profile.preferred_topics]))[:6]
+    remembered_register = str((long_term.style_memory or {}).get("register_estimate") or "").strip().lower()
+    if remembered_register in {"hajur", "tapai", "timi", "ta"}:
+        profile.register = remembered_register
+    cross_session_prompt_context = _build_cross_session_prompt_context(
+        long_term_memory=long_term,
+        approved_rules=approved_rules,
+    )
+
+    system_prompt = build_system_prompt(profile) + cross_session_prompt_context
     message_history: list[dict] = await _load_message_history(session_id)
     user: User | None = None
     curriculum_profile: UserCurriculumProfile | None = None
@@ -281,7 +337,7 @@ async def conversation_ws(
             new_register = _detect_register_switch(teacher_text, profile.register)
             if new_register and new_register != profile.register:
                 profile.register = new_register
-                system_prompt = build_system_prompt(profile)
+                system_prompt = build_system_prompt(profile) + cross_session_prompt_context
                 message_history[0] = {"role": "system", "content": system_prompt}
                 logger.info("Register switched to %s", new_register)
 
@@ -422,6 +478,7 @@ async def conversation_ws(
                     behavior_policy=behavior_policy,
                     question_plan=plan,
                     response_plan=response_plan,
+                    approved_rules=approved_rules,
                 )
                 turn_guidance = response_package.turn_guidance + (
                     "## Routing hooks\n"

@@ -147,3 +147,30 @@ All services healthy. WebSocket stable. Production-ready local stack.
 **Locked by:** Claude Code (Haiku 4.5)  
 **Timestamp:** 2026-04-16T17:45:00Z  
 **Status:** READY FOR DEPLOYMENT
+
+---
+
+## Post-v1 Verification Update — 2026-04-18
+
+The codebase has since moved beyond the initial v1 stabilization work.
+
+Verified activation changes now in the live codebase:
+- approved corrections update persistent knowledge state
+- approved correction rules are reused in future-session prompt guidance
+- cross-session memory loads from durable DB snapshots
+- low-trust extractions are queued for review instead of being learned directly
+- single-teacher vocabulary confidence is capped until stronger validation
+
+Verification notes:
+- activation-specific backend checks are now passing
+- one unrelated legacy backend test still fails in `test_intelligence_layer.py`
+
+Verification-driven fixes applied after v1:
+- `backend/db/connection.py` now supports SQLite test runs
+- `backend/services/learning.py` now writes `vocabulary_teachers.created_at`
+- `backend/services/learning.py` no longer depends on SQLite-incompatible `LEAST(...)`
+
+This file remains the historical v1 release note; current operational truth is in:
+- `README.md`
+- `SYSTEM_STATUS_REPORT.md`
+- `HANDOVER_TO_CODEX.md`

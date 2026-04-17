@@ -177,3 +177,47 @@ class ReviewQueueItem(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
+
+
+class VocabularyEntry(Base):
+    __tablename__ = "vocabulary_entries"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    word: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(Text, default="ne")
+    definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    times_taught: Mapped[int] = mapped_column(Integer, default=1)
+    pioneer_teacher_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    distinct_teacher_count: Mapped[int] = mapped_column(Integer, default=1)
+    admin_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class VocabularyTeacher(Base):
+    __tablename__ = "vocabulary_teachers"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    vocabulary_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("vocabulary_entries.id", ondelete="CASCADE")
+    )
+    teacher_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("teaching_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    contribution_type: Mapped[str] = mapped_column(Text, default="reinforcement")
+    confidence_added: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

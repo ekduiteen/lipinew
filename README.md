@@ -120,6 +120,25 @@ The newest learning direction is also more conservative:
 - correction-derived rules are moving toward a review queue instead of being blindly trusted
 - audio-understanding sidecar signals are optional enrichment, not a hard dependency for the live path
 
+## Verified Activation State
+
+As of 2026-04-18, the highest-value dormant intelligence paths are now active and re-verified:
+- approved corrections update persistent knowledge state
+- approved corrections produce approved `UsageRule` rows that are reloaded into future sessions
+- cross-session memory is loaded from durable `session_memory_snapshots` at session start
+- approved prior teachings are injected into per-turn prompt guidance
+- low-trust vocabulary extractions are rejected from direct learning and queued for review
+- single-teacher vocabulary confidence is capped until stronger validation arrives
+
+Verification outcome:
+- activation-focused backend tests: passing
+- targeted runtime probes: passing for approval flow, memory load, prompt injection, extraction validation, and confidence cap
+- one unrelated legacy test still fails in `backend/tests/test_intelligence_layer.py` on `secondary_languages` expectations
+
+Important implementation note:
+- frontend server routes no longer assume `localhost` or `backend:8000`
+- set `BACKEND_URL` or `NEXT_PUBLIC_BACKEND_URL` for the Next.js proxy layer
+
 ## Canonical Docs
 
 This repo used to have many overlapping setup/status/handover files. The canonical set is now:

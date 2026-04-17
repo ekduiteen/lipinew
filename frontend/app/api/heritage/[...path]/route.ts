@@ -5,7 +5,7 @@ import { getBackendUrl } from "@/lib/backend-url";
 const BACKEND = getBackendUrl();
 
 async function forward(req: NextRequest, path: string[]) {
-  const upstreamUrl = new URL(`${BACKEND}/api/${path.join("/")}`);
+  const upstreamUrl = new URL(`${BACKEND}/heritage/${path.join("/")}`);
   req.nextUrl.searchParams.forEach((value, key) => {
     upstreamUrl.searchParams.set(key, value);
   });
@@ -59,20 +59,6 @@ export async function GET(
 }
 
 export async function POST(
-  req: NextRequest,
-  context: { params: { path: string[] } }
-) {
-  return forward(req, context.params.path);
-}
-
-export async function PUT(
-  req: NextRequest,
-  context: { params: { path: string[] } }
-) {
-  return forward(req, context.params.path);
-}
-
-export async function PATCH(
   req: NextRequest,
   context: { params: { path: string[] } }
 ) {

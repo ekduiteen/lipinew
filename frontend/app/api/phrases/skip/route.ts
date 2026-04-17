@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getBackendUrl } from "@/lib/backend-url";
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get("authorization");
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
 
-    const backendUrl = process.env.BACKEND_URL || "http://backend:8000";
+    const backendUrl = getBackendUrl();
     const response = await fetch(`${backendUrl}/api/phrases/skip`, {
       method: "POST",
       headers: {

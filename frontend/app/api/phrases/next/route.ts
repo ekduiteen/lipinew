@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getBackendUrl } from "@/lib/backend-url";
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const backendUrl = process.env.BACKEND_URL || "http://backend:8000";
+    const backendUrl = getBackendUrl();
     console.log("Phrase API - Forwarding to:", backendUrl);
 
     const response = await fetch(`${backendUrl}/api/phrases/next`, {

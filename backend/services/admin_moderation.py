@@ -5,7 +5,12 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
-from models.intelligence import ReviewQueueItem
+from models.intelligence import (
+    ReviewQueueItem,
+    CorrectionEvent,
+    UsageRule,
+    KnowledgeConfidenceHistory,
+)
 from models.message import Message
 from models.dataset_gold import GoldRecord
 from models.admin_control import AdminAuditLog, AdminAccount
@@ -43,18 +48,43 @@ async def label_and_promote_to_gold(
 
     # 1. Update Review Item status
     item.status = "approved"
-    
-    # 2. Extract context from original message if possible
-    message = None
-    if item.extraction_metadata.get("message_id"):
-        # We assume the metadata stores the source message ID
-        # If not, we might need a more complex join
-        pass
+
+    # 2. Propagate approval to linked correction event + usage rule, and bump
+    #    knowledge confidence so future sessions reflect the approved teaching.
+    metadata = item.extraction_metadata or {}
+    correction_event_id = metadata.get("correction_event_id")
+    usage_rule_id = metadata.get("usage_rule_id")
+    language_key = metadata.get("language_key") or "ne"
+
+    if correction_event_id:
+        ce = await db.get(CorrectionEvent, correction_event_id)
+        if ce is not None:
+            ce.is_approved = True
+            ce.confidence_after = max(float(ce.confidence_after or 0.0), 0.95)
+
+    if usage_rule_id:
+        ur = await db.get(UsageRule, usage_rule_id)
+        if ur is not None:
+            ur.is_approved = True
+            ur.confidence = max(float(ur.confidence or 0.0), 0.9)
+
+    db.add(KnowledgeConfidenceHistory(
+        id=str(uuid.uuid4()),
+        teacher_id=item.teacher_id,
+        session_id=item.session_id,
+        correction_event_id=correction_event_id,
+        knowledge_key=(corrected_transcript or item.extracted_claim or "")[:255],
+        language_key=language_key,
+        previous_confidence=0.5,
+        new_confidence=0.95,
+        change_reason="admin_approved_correction",
+        is_contradiction_hook=False,
+    ))
 
     # 3. Create GoldRecord
     gold = GoldRecord(
         id=str(uuid.uuid4()),
-        original_message_id=item.extraction_metadata.get("message_id"),
+        original_message_id=metadata.get("message_id"),
         session_id=item.session_id,
         teacher_id=item.teacher_id,
         audio_path=item.source_audio_path,
@@ -68,6 +98,20 @@ async def label_and_promote_to_gold(
         labeled_by=admin.id
     )
     db.add(gold)
+
+    if correction_event_id and ce is not None and ce.correction_message_id:
+        await db.execute(
+            update(Message)
+            .where(Message.id == ce.correction_message_id)
+            .values(text=corrected_transcript)
+        )
+
+    if corrected_transcript:
+        await db.execute(
+            update(ReviewQueueItem)
+            .where(ReviewQueueItem.id == item_id)
+            .values(extracted_claim=corrected_transcript)
+        )
     
     # 4. Audit Log
     audit = AdminAuditLog(
