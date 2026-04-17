@@ -21,6 +21,7 @@ The app is working end-to-end:
 - durable learning queue
 - dashboard visibility
 - multi-engine backend intelligence layer
+- Native Android App Wrapper (Capacitor)
 
 The main problems are no longer infrastructure problems. They are product-quality problems:
 - STT quality, especially for Newari and mixed turns

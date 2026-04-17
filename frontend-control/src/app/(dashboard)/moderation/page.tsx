@@ -8,7 +8,8 @@ import {
   Tag, 
   AlertCircle,
   Loader2,
-  Settings2
+  Settings2,
+  Microscope
 } from "lucide-react";
 import api from "@/lib/api";
 import { AudioWaveform } from "@/components/moderation/AudioWaveform";
@@ -18,7 +19,9 @@ interface ReviewItem {
   audio_url: string;
   transcript: string;
   extracted_claim: string;
-  confidence: float;
+  confidence: number;
+  teacher_hometown?: string;
+  teacher_credibility?: number;
 }
 
 export default function ModerationPage() {
@@ -212,6 +215,26 @@ export default function ModerationPage() {
                   <SkipForward size={16} />
                   Skip [S]
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Teacher Context</h3>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">Hometown</span>
+              <span className="text-sm font-medium text-white">{item.teacher_hometown || "Unknown"}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">Credibility</span>
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 w-12 bg-slate-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-indigo-500" 
+                    style={{ width: `${(item.teacher_credibility || 0) * 100}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono text-indigo-400">{((item.teacher_credibility || 0) * 100).toFixed(0)}%</span>
               </div>
             </div>
           </div>

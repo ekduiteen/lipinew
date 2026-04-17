@@ -28,7 +28,7 @@ export default function TeachPage() {
 
   const wsRef = useRef<LipiWebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const chunksRef = useRef<Float32Array[]>([]);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxUtteranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,8 +233,8 @@ export default function TeachPage() {
       if (maxUtteranceTimerRef.current) clearTimeout(maxUtteranceTimerRef.current);
       if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      processorRef.current?.disconnect();
-      processorRef.current = null;
+      workletNodeRef.current?.disconnect();
+      workletNodeRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       ws?.close();
@@ -284,12 +284,18 @@ export default function TeachPage() {
     await ctx.resume();
 
     const source = ctx.createMediaStreamSource(stream);
-    const processor = ctx.createScriptProcessor(CHUNK_SIZE, 1, 1);
+    
+    // Load and add the AudioWorklet
+    await ctx.audioWorklet.addModule("/workers/vocal-processor.js");
+    const workletNode = new AudioWorkletNode(ctx, "vocal-processor");
+    workletNodeRef.current = workletNode;
+
     const muteGain = ctx.createGain();
     muteGain.gain.value = 0;
-    processorRef.current = processor;
 
-    processor.onaudioprocess = (e) => {
+    workletNode.port.onmessage = (event) => {
+      const data = event.data as Float32Array;
+
       if (ttsActiveRef.current || playingRef.current) {
         chunksRef.current = [];
         speakingRef.current = false;
@@ -304,7 +310,6 @@ export default function TeachPage() {
         return;
       }
 
-      const data = e.inputBuffer.getChannelData(0);
       const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
 
       setAmplitude(rms);
@@ -349,8 +354,8 @@ export default function TeachPage() {
       }
     };
 
-    source.connect(processor);
-    processor.connect(muteGain);
+    source.connect(workletNode);
+    workletNode.connect(muteGain);
     muteGain.connect(ctx.destination);
     setMicReady(true);
     setMicError(null);

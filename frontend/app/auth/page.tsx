@@ -81,14 +81,13 @@ function AuthPageInner() {
           <span>Google बाट जारी राख्नुहोस् · Continue with Google</span>
         </button>
 
-        {process.env.NODE_ENV === "development" && (
-          <button
-            className={styles.demoBtn}
-            onClick={handleDemoLogin}
-          >
-            Demo Login (dev only)
-          </button>
-        )}
+        <button
+          className={styles.demoBtn}
+          onClick={handleDemoLogin}
+          style={{ marginTop: '1rem' }}
+        >
+          Demo Login (Mobile App Testing)
+        </button>
 
         <p className={styles.terms}>
           जारी राखेर, तपाईं हाम्रो{" "}

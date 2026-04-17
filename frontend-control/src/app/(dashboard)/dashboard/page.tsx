@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [dialect, setDialect] = useState("");
   const [register, setRegister] = useState("");
+  const [summary, setSummary] = useState<any>(null);
 
   const fetchStats = async () => {
     setLoading(true);
@@ -28,6 +29,9 @@ export default function DashboardPage() {
         params: { dialect, register }
       });
       setStats(data);
+      
+      const { data: summaryData } = await api.get("/ctrl/system/stats/summary");
+      setSummary(summaryData);
     } catch (err) {
       console.error("Failed to fetch stats", err);
     } finally {
@@ -45,7 +49,7 @@ export default function DashboardPage() {
   const TOP_STATS = [
     { label: "Total Teacher Turns", value: totalRaw.toLocaleString(), icon: MessageSquare, trend: "+12%" },
     { label: "High Quality (Gold)", value: totalGold.toLocaleString(), icon: CheckCircle2, trend: "+8%" },
-    { label: "Pending Review", value: "482", icon: Clock, trend: "-5%" },
+    { label: "Pending Review", value: summary?.pending_review?.toLocaleString() || "...", icon: Clock, trend: "-5%" },
     { label: "Active Contributors", value: "1,240", icon: Users, trend: "+3%" },
   ];
 

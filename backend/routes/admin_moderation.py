@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import get_db
 from dependencies.admin_auth import get_current_admin
 from models.admin_control import AdminAccount
+from models.user import User
 from services.admin_moderation import (
     get_next_review_item,
     label_and_promote_to_gold,
@@ -34,13 +35,17 @@ async def fetch_next_turn(
     item = await get_next_review_item(db)
     if not item:
         return {"item": None, "message": "Queue empty"}
-    
+
+    # Fetch teacher context
+    teacher = await db.scalar(select(User).where(User.id == item.teacher_id))
     return {
         "item": {
             "id": item.id,
             "audio_url": item.source_audio_path,
             "transcript": item.source_transcript,
             "teacher_id": item.teacher_id,
+            "teacher_hometown": teacher.hometown if teacher else "Unknown",
+            "teacher_credibility": teacher.credibility_score if teacher else 0.0,
             "session_id": item.session_id,
             "extracted_claim": item.extracted_claim,
             "confidence": item.confidence,

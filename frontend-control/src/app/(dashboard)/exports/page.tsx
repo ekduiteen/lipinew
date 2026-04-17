@@ -22,12 +22,16 @@ export default function ExportsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newVersion, setNewVersion] = useState("1.0.0");
+  const [summary, setSummary] = useState<any>(null);
 
   const fetchSnapshots = async () => {
     setLoading(true);
     try {
       const { data } = await api.get("/ctrl/datasets/");
       setSnapshots(data.snapshots);
+      
+      const { data: summaryData } = await api.get("/ctrl/system/stats/summary");
+      setSummary(summaryData);
     } catch (error) {
       console.log("Failed to fetch snapshots", error);
     } finally {
@@ -77,17 +81,26 @@ export default function ExportsPage() {
         <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-6">
           <TrendingUp className="text-indigo-400 mb-4" size={24} />
           <h3 className="text-white font-bold">Training Yield</h3>
-          <p className="text-slate-400 text-sm mt-1">Total clean records available for export: <span className="text-indigo-400 font-mono">3,102</span></p>
+          <p className="text-slate-400 text-sm mt-1">
+            Total clean records available for export:{" "}
+            <span className="text-indigo-400 font-mono">
+              {summary?.gold_yield?.toLocaleString() || "..."}
+            </span>
+          </p>
         </div>
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6">
           <ShieldCheck className="text-emerald-400 mb-4" size={24} />
           <h3 className="text-white font-bold">Data Integrity</h3>
-          <p className="text-slate-400 text-sm mt-1">98.4% of Gold records have human-corrected transcripts.</p>
+          <p className="text-slate-400 text-sm mt-1">
+            {summary?.data_integrity || "98.4"}% of Gold records have human-corrected transcripts.
+          </p>
         </div>
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-6">
           <AlertTriangle className="text-amber-400 mb-4" size={24} />
           <h3 className="text-white font-bold">Storage Health</h3>
-          <p className="text-slate-400 text-sm mt-1">MinIO partition usage is at 14% capacity.</p>
+          <p className="text-slate-400 text-sm mt-1">
+            MinIO partition usage is at {summary?.storage_usage || "14"}% capacity.
+          </p>
         </div>
       </div>
 

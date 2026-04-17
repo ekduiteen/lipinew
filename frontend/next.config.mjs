@@ -1,3 +1,12 @@
+import withPWAInit from "next-pwa";
+
+const withPWA = withPWAInit({
+  dest: "public",
+  register: true,
+  skipWaiting: true,
+  disable: false,
+});
+
 /** @type {import('next').NextConfig} */
 const allowedOrigins = ["localhost:3000"];
 if (process.env.NEXTAUTH_URL) {
@@ -14,4 +23,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPWA(nextConfig);

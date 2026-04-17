@@ -11,7 +11,8 @@ import {
   Activity, 
   Settings,
   LogOut,
-  Microscope
+  Microscope,
+  History
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { label: "Gold Records", href: "/gold-records", icon: Database },
   { label: "Dataset Exports", href: "/exports", icon: FileJson },
   { label: "System Health", href: "/health", icon: Activity },
+  { label: "Audit Log", href: "/audit", icon: History },
   { label: "Staff Access", href: "/staff", icon: Settings, adminOnly: true },
 ];
 
