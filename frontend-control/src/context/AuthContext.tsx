@@ -11,8 +11,8 @@ interface AdminUser {
 
 interface AuthContextType {
   admin: AdminUser | null;
-  isLoading: bool;
-  login: (token: str, user: AdminUser) => void;
+  isLoading: boolean;
+  login: (token: string, user: AdminUser) => void;
   logout: () => void;
 }
 

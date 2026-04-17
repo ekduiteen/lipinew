@@ -2,14 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import { 
-  BarChart3, 
-  Users, 
   MessageSquare, 
   CheckCircle2,
   Clock,
   ArrowUpRight,
   TrendingUp,
-  Loader2
+  Loader2,
+  CheckCheck,
+  Timer
 } from "lucide-react";
 import api from "@/lib/api";
 import { YieldAreaChart, ModerationBarChart } from "@/components/analytics/AnalyticsCharts";
@@ -49,8 +49,9 @@ export default function DashboardPage() {
   const TOP_STATS = [
     { label: "Total Teacher Turns", value: totalRaw.toLocaleString(), icon: MessageSquare, trend: "+12%" },
     { label: "High Quality (Gold)", value: totalGold.toLocaleString(), icon: CheckCircle2, trend: "+8%" },
-    { label: "Pending Review", value: summary?.pending_review?.toLocaleString() || "...", icon: Clock, trend: "-5%" },
-    { label: "Active Contributors", value: "1,240", icon: Users, trend: "+3%" },
+    { label: "Pending Review", value: summary?.pending_queue_size?.toLocaleString() || "...", icon: Clock, trend: `${summary?.items_claimed || 0} claimed` },
+    { label: "Approvals Today", value: summary?.approvals_today?.toLocaleString() || "...", icon: CheckCheck, trend: `${summary?.rejections_today || 0} rejected` },
+    { label: "Avg Review Time", value: summary?.avg_review_time_seconds ? `${summary.avg_review_time_seconds}s` : "...", icon: Timer, trend: `${((summary?.low_trust_rate || 0) * 100).toFixed(1)}% low-trust` },
   ];
 
   return (
@@ -73,7 +74,7 @@ export default function DashboardPage() {
         setRegister={setRegister} 
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         {TOP_STATS.map((stat) => (
           <div key={stat.label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">

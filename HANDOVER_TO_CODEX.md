@@ -7,18 +7,19 @@ This is the current engineer handover. Update this file when state changes.
 | Layer | Status | Notes |
 |-------|--------|-------|
 | Backend | ✅ Healthy | Activation loop verified and testable |
-| Database | ✅ Healthy | Migration added for vocabulary reliability |
+| Database | ✅ Healthy | Control migration added for queue claims and moderation indexes |
 | Frontend | ✅ Healthy | Backend URL assumptions removed from runtime paths |
+| Control Frontend | ✅ Healthy | Builds successfully and reflects real moderation/export state |
 | WebSocket Teach Loop | ✅ Healthy | Memory + approved-rule read path wired at session start |
 | Phrase Lab | ✅ Healthy | Primary + variation route wiring present |
 | Heritage | ✅ Healthy | Uses proxied backend routes |
-| Verification Harness | ✅ Improved | SQLite engine/test blocker fixed |
+| Verification Harness | ✅ Improved | Activation and admin-control tests pass |
 
 ---
 
-## What Was Just Verified
+## What Was Just Completed
 
-The recent activation work is now real, not dormant:
+### Learning activation state
 - approved corrections update persistent knowledge
 - approved correction rules are readable in future sessions
 - cross-session memory loads from durable snapshots
@@ -26,37 +27,15 @@ The recent activation work is now real, not dormant:
 - low-trust extractions are diverted to review instead of direct learning
 - single-teacher vocabulary confidence is capped at `0.70` until stronger validation
 
-Runtime-confirmed:
-- `label_and_promote_to_gold()` approval side effects
-- `load_teacher_long_term_memory()` snapshot reload
-- approved rule injection into `build_response_package()`
-- extraction validator behavior
-- vocab confidence cap behavior
-
----
-
-## Verification Fixes Applied
-
-### Test harness fix
-File:
-- `backend/db/connection.py`
-
-Change:
-- SQLite URLs no longer receive `pool_size` / `max_overflow`
-
-Why:
-- pytest collection was failing before any activation tests ran
-
-### Learning runtime fix
-File:
-- `backend/services/learning.py`
-
-Changes:
-- `vocabulary_teachers.created_at` is now written explicitly
-- SQLite-incompatible `LEAST(...)` removed from vocab update SQL
-
-Why:
-- isolated runtime probe exposed a real failure in the confidence-cap path
+### Admin/control hardening state
+- queue claiming with expiry and auto-release
+- filtered moderation queue by review type, language, confidence, source, and age
+- batch approve / reject / release actions
+- real moderation metrics endpoint
+- audited dataset snapshot creation with richer filters
+- authenticated control-frontend download path
+- moderation UI surfaces review type, source, confidence, teacher credibility, and supporting-teacher signal
+- gold browser surfaces provenance and confidence history
 
 ---
 
@@ -64,16 +43,20 @@ Why:
 
 Command:
 ```bash
-python -m pytest backend/tests/test_learning_activation.py backend/tests/test_learning.py backend/tests/test_intelligence_layer.py -q
+python -m pytest backend/tests/test_admin_control.py backend/tests/test_learning_activation.py -q
 ```
 
 Result:
-- `22 passed`
-- `1 failed`
+- `9 passed`
 
-Remaining failure:
-- `backend/tests/test_intelligence_layer.py::TestInputUnderstanding::test_detects_correction_code_switch_and_nuance_signals`
-- unrelated to the activation work
+Command:
+```bash
+cd frontend-control
+npm run build
+```
+
+Result:
+- ✅ PASS
 
 ---
 
@@ -87,28 +70,37 @@ Remaining failure:
 - `backend/services/response_orchestrator.py`
 - `backend/routes/sessions.py`
 
-### Verification coverage
-- `backend/tests/test_learning_activation.py`
+### Admin / control
+- `backend/routes/admin_moderation.py`
+- `backend/routes/admin_system.py`
+- `backend/routes/admin_export.py`
+- `backend/services/admin_export.py`
+- `backend/models/intelligence.py`
+- `backend/alembic/versions/e6f7a8b9c0d1_admin_queue_claims_and_metrics.py`
+- `backend/tests/test_admin_control.py`
 
-### Frontend route fixes
-- `frontend/lib/backend-url.ts`
-- `frontend/app/api/proxy/[...path]/route.ts`
-- `frontend/app/api/heritage/[...path]/route.ts`
-- `frontend/app/(tabs)/phrase-lab/page.tsx`
-- `frontend/app/(tabs)/heritage/page.tsx`
+### Control frontend
+- `frontend-control/next.config.ts`
+- `frontend-control/src/app/(dashboard)/moderation/page.tsx`
+- `frontend-control/src/app/(dashboard)/dashboard/page.tsx`
+- `frontend-control/src/app/(dashboard)/exports/page.tsx`
+- `frontend-control/src/app/(dashboard)/gold-records/page.tsx`
+- `frontend-control/src/app/(dashboard)/health/page.tsx`
+- `frontend-control/src/app/api/proxy-download/[snapshotId]/route.ts`
 
 ---
 
-## Current Open Items
+## Remaining Limits
 
-These are still not fully re-proven in a live browser or full WS loop:
-- visible reply-quality change after approving a correction and starting a fresh live session
-- browser-exercised phrase variation flow with real audio
+These are still true after the hardening work:
+- snapshot creation is synchronous and request-bound
+- live WS reply quality shift after approved correction is still only partially re-observed end-to-end
+- production MinIO artifact download should still be smoke-tested against the real bucket after deploy
 
-These are verification gaps, not codepath gaps.
+These are scale/ops limits, not broken paths.
 
 ---
 
 ## Bottom Line
 
-The activation work is in place, verified, and no longer blocked by the test harness.
+The activation work is real, and the admin/control layer is now a functioning data-operations system rather than a thin moderation UI.

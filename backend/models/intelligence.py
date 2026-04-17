@@ -171,6 +171,10 @@ class ReviewQueueItem(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     model_source: Mapped[str] = mapped_column(Text, default="gemma_audio_v1")
     status: Mapped[str] = mapped_column(Text, default="pending_review") # pending_review, approved, rejected, needs_more_context
+    claimed_by: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("admin_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

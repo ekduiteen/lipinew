@@ -112,9 +112,9 @@ LIPI now has four collection modes:
 The platform now includes a standalone administrative and analyst environment:
 - **frontend-control** on `http://127.0.0.1:3001` (Enterprise Dashboard)
 - **Admin Security**: Isolated `AdminAccount` and `AdminAuditLog` system.
-- **Moderation**: High-speed audio labeling workbench with Waveform visualizers.
-- **Deep Analytics**: Interactive Recharts-powered dashboards for Curation Yield.
-- **Factory**: Versioned dataset snapshot logic with MinIO export.
+- **Moderation**: claim-safe review queue with filtering, batch actions, and prefetched claimed buffers.
+- **Deep Analytics**: DB-derived moderation and throughput metrics.
+- **Factory**: versioned dataset snapshot logic with authenticated MinIO-backed download flow.
 
 The newest learning direction is also more conservative:
 - correction-derived rules are moving toward a review queue instead of being blindly trusted
@@ -136,8 +136,28 @@ Verification outcome:
 - one unrelated legacy test still fails in `backend/tests/test_intelligence_layer.py` on `secondary_languages` expectations
 
 Important implementation note:
-- frontend server routes no longer assume `localhost` or `backend:8000`
-- set `BACKEND_URL` or `NEXT_PUBLIC_BACKEND_URL` for the Next.js proxy layer
+- app frontend server routes no longer assume `localhost` or `backend:8000`
+- control frontend no longer hardcodes `localhost`, but it now requires `BACKEND_URL` or `NEXT_PUBLIC_API_URL`
+- set backend URL env vars explicitly for both Next.js apps
+
+## Admin / Data Operations State
+
+As of 2026-04-18, the control system is no longer just a moderation panel.
+
+Operational capabilities now live in code:
+- queue claiming with expiry and auto-release
+- filtered moderation queue by review type, language, confidence, source, and age
+- atomic batch approve / reject / release actions
+- real moderation metrics via `/api/ctrl/system/metrics/real`
+- audited dataset snapshot creation with filters for language, dialect, date range, and confidence threshold
+- authenticated artifact download via `/api/ctrl/datasets/download/{snapshot_id}` and the control frontend proxy
+- moderation UI now surfaces review type, source, confidence, teacher credibility, and supporting-teacher signal
+- gold browser now shows provenance and confidence history
+
+Current control-system verification:
+- backend admin-control tests passing
+- `frontend-control` production build passing
+- moderation path safe for multiple reviewers at the claim/action layer
 
 ## Canonical Docs
 

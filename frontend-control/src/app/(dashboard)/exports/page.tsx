@@ -23,6 +23,11 @@ export default function ExportsPage() {
   const [newName, setNewName] = useState("");
   const [newVersion, setNewVersion] = useState("1.0.0");
   const [summary, setSummary] = useState<any>(null);
+  const [filterLanguage, setFilterLanguage] = useState("");
+  const [filterDialect, setFilterDialect] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterConfidence, setFilterConfidence] = useState("0.8");
 
   const fetchSnapshots = async () => {
     setLoading(true);
@@ -30,7 +35,7 @@ export default function ExportsPage() {
       const { data } = await api.get("/ctrl/datasets/");
       setSnapshots(data.snapshots);
       
-      const { data: summaryData } = await api.get("/ctrl/system/stats/summary");
+      const { data: summaryData } = await api.get("/ctrl/system/metrics/real");
       setSummary(summaryData);
     } catch (error) {
       console.log("Failed to fetch snapshots", error);
@@ -46,7 +51,13 @@ export default function ExportsPage() {
       await api.post("/ctrl/datasets/snapshot", {
         name: newName,
         version: newVersion,
-        filters: {} // Standard dataset for now
+        filters: {
+          ...(filterLanguage ? { language: filterLanguage } : {}),
+          ...(filterDialect ? { dialect: filterDialect } : {}),
+          ...(filterDateFrom ? { date_from: `${filterDateFrom}T00:00:00Z` } : {}),
+          ...(filterDateTo ? { date_to: `${filterDateTo}T23:59:59Z` } : {}),
+          ...(filterConfidence ? { confidence_threshold: Number(filterConfidence) } : {}),
+        }
       });
       setShowCreate(false);
       fetchSnapshots();
@@ -84,7 +95,7 @@ export default function ExportsPage() {
           <p className="text-slate-400 text-sm mt-1">
             Total clean records available for export:{" "}
             <span className="text-indigo-400 font-mono">
-              {summary?.gold_yield?.toLocaleString() || "..."}
+              {summary?.gold_records_created?.toLocaleString() || "..."}
             </span>
           </p>
         </div>
@@ -92,14 +103,14 @@ export default function ExportsPage() {
           <ShieldCheck className="text-emerald-400 mb-4" size={24} />
           <h3 className="text-white font-bold">Data Integrity</h3>
           <p className="text-slate-400 text-sm mt-1">
-            {summary?.data_integrity || "98.4"}% of Gold records have human-corrected transcripts.
+            {(summary?.low_trust_rate * 100 || 0).toFixed(1)}% of review items are low-trust validations.
           </p>
         </div>
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-6">
           <AlertTriangle className="text-amber-400 mb-4" size={24} />
-          <h3 className="text-white font-bold">Storage Health</h3>
+          <h3 className="text-white font-bold">Review Operations</h3>
           <p className="text-slate-400 text-sm mt-1">
-            MinIO partition usage is at {summary?.storage_usage || "14"}% capacity.
+            {summary?.approvals_today || 0} approvals today, avg review time {summary?.avg_review_time_seconds || 0}s.
           </p>
         </div>
       </div>
@@ -140,7 +151,7 @@ export default function ExportsPage() {
                 </div>
                 <div>
                   <a 
-                    href={`/api/proxy-download/${s.download_url}`} 
+                    href={`/api/proxy-download/${s.id}`} 
                     target="_blank" 
                     className="flex items-center gap-2 text-indigo-400 text-sm font-bold hover:text-indigo-300 transition-colors"
                   >
@@ -176,6 +187,53 @@ export default function ExportsPage() {
                   required
                   value={newVersion}
                   onChange={e => setNewVersion(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Language</label>
+                  <input
+                    value={filterLanguage}
+                    onChange={e => setFilterLanguage(e.target.value)}
+                    placeholder="ne"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Dialect</label>
+                  <input
+                    value={filterDialect}
+                    onChange={e => setFilterDialect(e.target.value)}
+                    placeholder="Kathmandu"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Date From</label>
+                  <input
+                    type="date"
+                    value={filterDateFrom}
+                    onChange={e => setFilterDateFrom(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Date To</label>
+                  <input
+                    type="date"
+                    value={filterDateTo}
+                    onChange={e => setFilterDateTo(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Confidence Threshold</label>
+                <input
+                  value={filterConfidence}
+                  onChange={e => setFilterConfidence(e.target.value)}
+                  placeholder="0.8"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                 />
               </div>

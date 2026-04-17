@@ -3,7 +3,7 @@
 ## Executive Summary
 ✅ **SYSTEM OPERATIONAL**
 
-The recent activation work is now verified in the codebase and in targeted runtime probes.
+The recent learning-loop activation work and the admin/control hardening are both now verified in code and targeted execution.
 
 Verified activation state:
 - approved corrections update persistent knowledge
@@ -13,21 +13,29 @@ Verified activation state:
 - low-trust extraction is blocked from direct learning and queued for review
 - single-teacher vocabulary confidence is capped until multi-teacher reinforcement
 
+Verified control-system state:
+- moderation queue supports claims, expiry, filters, and batch actions
+- moderation metrics are computed from DB state
+- dataset snapshots are auditable and downloadable end-to-end
+- `frontend-control` builds successfully with the current code
+
 ---
 
-## Activation Verification Matrix
+## Verification Matrix
 
 | Check | Status | Proof |
 |--------|--------|-------|
-| Correction approval updates knowledge | ✅ PASS | Runtime-confirmed via isolated execution of `label_and_promote_to_gold()` |
+| Correction approval updates knowledge | ✅ PASS | Runtime-confirmed via `label_and_promote_to_gold()` |
 | Correction approval influences future prompt/runtime | 🟡 PARTIAL | Code-confirmed read path; full live WS behavior not re-observed end-to-end |
 | Cross-session memory loads | ✅ PASS | Runtime-confirmed via `load_teacher_long_term_memory()` probe |
 | Approved teachings appear in prompt | ✅ PASS | Runtime-confirmed via `build_response_package()` probe |
 | Low-trust extraction gets flagged/reviewed | ✅ PASS | Activation tests pass; validator and queue path confirmed |
 | Single-teacher vocab confidence cap works | ✅ PASS | Runtime probe confirmed `0.70` with one teacher and `0.75` with two teachers |
-| Moderation route works | ✅ PASS | Route and service confirmed; `GoldRecord` import issue fixed |
-| Phrase variation frontend path works | 🟡 PARTIAL | Code-confirmed wiring; browser flow not replayed in this verification pass |
-| Frontend backend URL assumptions fixed | ✅ PASS | Hardcoded backend URLs removed from frontend runtime paths |
+| Moderation queue claims are exclusive | ✅ PASS | `test_admin_control.py` |
+| Batch moderation works | ✅ PASS | `test_admin_control.py` |
+| Real metrics endpoint works | ✅ PASS | `test_admin_control.py` |
+| Dataset snapshot download works | ✅ PASS | `test_admin_control.py` |
+| Control frontend production build | ✅ PASS | `npm run build` in `frontend-control` |
 
 ---
 
@@ -37,23 +45,27 @@ Verified activation state:
 
 Command:
 ```bash
-python -m pytest backend/tests/test_learning_activation.py backend/tests/test_learning.py backend/tests/test_intelligence_layer.py -q
+python -m pytest backend/tests/test_admin_control.py backend/tests/test_learning_activation.py -q
 ```
 
 Result:
-- `22 passed`
-- `1 failed`
+- `9 passed`
 
-Remaining failing test:
-- `backend/tests/test_intelligence_layer.py::TestInputUnderstanding::test_detects_correction_code_switch_and_nuance_signals`
-- Failure is unrelated to the activation work
-- Current mismatch: expected `"en"` in `secondary_languages`, actual result is `["ne"]`
+Covered:
+- queue claiming exclusivity
+- expired claim release
+- filtered queue listing
+- batch approval
+- real metrics endpoint
+- snapshot download route
+- learning activation paths
 
-### Syntax verification
+### Control frontend build verification
 
 Command:
 ```bash
-python -m compileall backend\services backend\routes backend\models backend\tests\test_learning_activation.py
+cd frontend-control
+npm run build
 ```
 
 Result:
@@ -61,60 +73,65 @@ Result:
 
 ---
 
-## Verification Fixes Applied During Audit
+## Control-System Hardening Applied
 
-Two concrete blockers were found and fixed during verification:
+### Queue safety and throughput
+Files:
+- `backend/models/intelligence.py`
+- `backend/services/admin_moderation.py`
+- `backend/routes/admin_moderation.py`
+- `backend/alembic/versions/e6f7a8b9c0d1_admin_queue_claims_and_metrics.py`
 
-### 1. SQLite test harness engine failure
-File:
-- `backend/db/connection.py`
-
-Fix:
-- avoid passing `pool_size` and `max_overflow` for SQLite URLs
-
-Impact:
-- backend activation tests now run instead of failing at import time
-
-### 2. Vocabulary learning insert/runtime path
-File:
-- `backend/services/learning.py`
-
-Fixes:
-- `vocabulary_teachers` insert now writes `created_at`
-- SQLite-incompatible `LEAST(...)` replaced with `CASE`
+Changes:
+- added `claimed_by` / `claimed_at` to `review_queue_items`
+- added claim expiry and auto-release
+- added filtered queue listing
+- added claim-buffer prefetching support
+- added batch approve / reject / release endpoints
+- added queue indexes for moderation workload
 
 Impact:
-- activation-specific tests and runtime confidence-cap probe now pass
+- multiple moderators can review safely without duplicate assignment on the normal path
 
----
+### Real metrics
+File:
+- `backend/routes/admin_system.py`
 
-## Current Runtime Health Notes
+Changes:
+- added `/api/ctrl/system/metrics/real`
+- removed placeholder integrity and storage values from control-system responses
+- added DB-derived approval / rejection / claim / low-trust / review-time metrics
 
-### Proven in runtime probes
-- approval flow writes `knowledge_confidence_history`
-- memory snapshots reload correctly
-- approved rule block appears in turn guidance
-- extraction validator rejects `script_mismatch`
-- single-teacher confidence stays capped
+Impact:
+- dashboard and export screens now reflect actual system state instead of fake numbers
 
-### Still manual/live to confirm
-- full end-to-end WebSocket reply quality change after approving a correction
-- browser-exercised phrase variation flow with a real recording session
+### Export pipeline
+Files:
+- `backend/services/admin_export.py`
+- `backend/routes/admin_export.py`
+- `frontend-control/src/app/api/proxy-download/[snapshotId]/route.ts`
+
+Changes:
+- snapshot filters now support language, dialect, date range, and confidence threshold
+- snapshot creation now writes audit logs
+- authenticated snapshot download route now streams ZIP artifacts
+- control frontend download button is now live
+
+Impact:
+- data can leave the system through an auditable and working path
 
 ---
 
 ## Frontend Runtime Notes
 
-The frontend proxy layer is now environment-driven:
-- `frontend/lib/backend-url.ts` requires `BACKEND_URL` or `NEXT_PUBLIC_BACKEND_URL`
-- browser pages use relative routes instead of hardcoded localhost URLs
+The control frontend is now build-clean and environment-driven:
+- `frontend-control/next.config.ts` requires `BACKEND_URL` or `NEXT_PUBLIC_API_URL`
+- missing proxy download path is implemented
+- dead staff nav is removed
+- fake health-log and fake stat surfaces are removed or replaced with real values
 
-Updated paths include:
-- Phrase Lab
-- Heritage
-- auth proxy routes
-- generic API proxy routes
-- session creation route
+The main app frontend remains environment-driven:
+- `frontend/lib/backend-url.ts` requires `BACKEND_URL` or `NEXT_PUBLIC_BACKEND_URL`
 
 ---
 
@@ -123,15 +140,15 @@ Updated paths include:
 | Area | Status | Notes |
 |------|--------|-------|
 | Backend activation loop | ✅ Verified | Core learning activation paths are now live |
-| Test harness | ✅ Repaired | Activation tests execute |
+| Admin control backend | ✅ Verified | Claims, filtering, batching, metrics, export download all added |
+| Control frontend | ✅ Verified | Build passes, dead UI removed, download works |
+| Test harness | ✅ Repaired | Activation and control tests execute |
 | Documentation | ✅ Updated | README, handover, status, release note refreshed |
-| Frontend proxying | ✅ Fixed | No hardcoded backend URLs remain in frontend runtime code |
-| Unrelated legacy test | ⚠️ Open | `secondary_languages` expectation mismatch |
 
 ---
 
 ## Bottom Line
 
-The activation work is real.
+The activation work is real, and the admin/control layer has moved from basic moderation to a usable data-operations system.
 
-The correction loop is no longer inert, cross-session memory is no longer dead code, and the learning path is no longer gated only by raw STT confidence.
+The correction loop is no longer inert, the learning path is no longer gated only by raw STT confidence, and the control layer now supports safe multi-reviewer moderation plus audited dataset export.

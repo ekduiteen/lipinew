@@ -3,11 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   History, 
-  Search, 
-  Filter, 
-  User, 
   Clock, 
-  ExternalLink,
   ChevronLeft,
   ChevronRight,
   Loader2
@@ -51,23 +47,6 @@ export default function AuditPage() {
           <History size={18} className="text-indigo-400" />
           <span className="text-sm font-bold text-white">{total.toLocaleString()} Actions Logged</span>
         </div>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center gap-4">
-        <div className="relative flex-1 min-w-[300px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search by action or entity ID..."
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-          />
-        </div>
-        
-        <button className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-700 transition-colors">
-          <Filter size={16} />
-          Filters
-        </button>
       </div>
 
       {/* Logs Table */}

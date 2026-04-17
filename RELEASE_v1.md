@@ -174,3 +174,26 @@ This file remains the historical v1 release note; current operational truth is i
 - `README.md`
 - `SYSTEM_STATUS_REPORT.md`
 - `HANDOVER_TO_CODEX.md`
+
+---
+
+## Post-v1 Control-System Update — 2026-04-18
+
+The admin/control layer has now been hardened beyond the earlier moderation MVP.
+
+Completed since the original v1 note:
+- queue claiming with expiry and auto-release
+- filtered moderation queue
+- batch approve / reject / release actions
+- real moderation metrics via `/api/ctrl/system/metrics/real`
+- audited dataset snapshot creation with richer filters
+- authenticated dataset download path for `frontend-control`
+- control frontend build cleanup and removal of fake/dead admin UI
+
+Verification completed:
+- `python -m pytest backend/tests/test_admin_control.py backend/tests/test_learning_activation.py -q`
+- `frontend-control`: `npm run build`
+
+Operational effect:
+- multiple moderators can now work more safely without duplicate assignment on the normal path
+- the control layer can now move reviewed data into auditable export artifacts end-to-end

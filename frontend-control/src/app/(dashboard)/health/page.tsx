@@ -100,52 +100,42 @@ export default function HealthPage() {
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
             <h2 className="text-xl font-bold text-white mb-8 flex items-center gap-3">
               <Cloud size={22} className="text-indigo-400" />
-              API Logs Preview
+              Service Facts
             </h2>
-            <div className="space-y-4 font-mono text-[10px] text-slate-500">
-               <div className="flex gap-4">
-                 <span className="text-emerald-500 flex-shrink-0">[200 OK]</span>
-                 <span className="text-slate-400">GET /api/ctrl/gold - 14ms</span>
-               </div>
-               <div className="flex gap-4">
-                 <span className="text-emerald-500 flex-shrink-0">[200 OK]</span>
-                 <span className="text-slate-400">POST /api/ctrl/moderation/label - 42ms</span>
-               </div>
-               <div className="flex gap-4">
-                 <span className="text-indigo-500 flex-shrink-0">[INFO]</span>
-                 <span className="text-slate-400">Snapshot creation job initialized for v1.0.0</span>
-               </div>
+            <div className="space-y-4 text-sm text-slate-400">
+              <div className="flex items-center justify-between">
+                <span>Backend status</span>
+                <span className="font-mono text-white">{data?.status || "unknown"}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Gold records</span>
+                <span className="font-mono text-white">{data?.counts?.gold_records || 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Raw teacher turns</span>
+                <span className="font-mono text-white">{data?.counts?.raw_messages || 0}</span>
+              </div>
             </div>
-            <p className="mt-8 text-xs text-slate-600 italic">Streaming live telemetry via REST polling.</p>
+            <p className="mt-8 text-xs text-slate-600 italic">This view shows live control-system health only. No synthetic log preview is rendered.</p>
           </div>
         </div>
 
         <div className="space-y-8">
            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
-              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                <CheckCircle size={40} className="text-emerald-500" />
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${data?.status === "healthy" ? "bg-emerald-500/10" : "bg-amber-500/10"}`}>
+                <CheckCircle size={40} className={data?.status === "healthy" ? "text-emerald-500" : "text-amber-500"} />
               </div>
-              <h2 className="text-2xl font-bold text-white">System Optimal</h2>
+              <h2 className="text-2xl font-bold text-white">{data?.status === "healthy" ? "System Healthy" : "System Degraded"}</h2>
               <p className="text-slate-500 mt-2 text-sm leading-relaxed">
-                All critical infrastructures are operational and latency is within baseline parameters.
+                Status is derived from database, Valkey, and object-storage health checks.
               </p>
            </div>
 
            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
               <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">Uptime Overview</h3>
-              <div className="flex gap-1">
-                {[...Array(30)].map((_, i) => (
-                  <div 
-                    key={i} 
-                    className={`h-8 flex-1 rounded-sm ${i === 22 ? 'bg-amber-500' : 'bg-emerald-500'}`} 
-                    title="Healthy Connection"
-                  />
-                ))}
-              </div>
-              <div className="flex justify-between mt-2 text-[10px] text-slate-600 font-bold">
-                <span>30 DAYS AGO</span>
-                <span>TODAY</span>
-              </div>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Historical uptime bars are disabled until the backend exposes real uptime history.
+              </p>
            </div>
         </div>
       </div>

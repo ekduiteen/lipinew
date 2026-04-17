@@ -9,7 +9,6 @@ import {
   ShieldCheck, 
   FileJson, 
   Activity, 
-  Settings,
   LogOut,
   Microscope,
   History
@@ -29,7 +28,6 @@ const NAV_ITEMS = [
   { label: "Dataset Exports", href: "/exports", icon: FileJson },
   { label: "System Health", href: "/health", icon: Activity },
   { label: "Audit Log", href: "/audit", icon: History },
-  { label: "Staff Access", href: "/staff", icon: Settings, adminOnly: true },
 ];
 
 export function Sidebar() {
@@ -47,8 +45,6 @@ export function Sidebar() {
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
-          if (item.adminOnly && admin?.role !== "super_admin") return null;
-          
           const isActive = pathname === item.href;
           return (
             <Link

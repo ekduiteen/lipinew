@@ -23,7 +23,6 @@ export function AudioWaveform({ url }: WaveformProps) {
       cursorColor: "#c7d2fe",
       barWidth: 2,
       barRadius: 3,
-      responsive: true,
       height: 80,
       normalize: true,
     });

@@ -2,10 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { 
-  Search, 
   Filter, 
-  Play, 
-  MoreHorizontal, 
   Download,
   Calendar,
   Layers,
@@ -51,24 +48,15 @@ export default function GoldRecordsPage() {
           <p className="text-slate-400 mt-2">Verified ground-truth training pairs for STT/TTS engine fine-tuning.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all">
+          <a href="/exports" className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all">
             <Download size={18} />
-            Bulk Export
-          </button>
+            Open Exports
+          </a>
         </div>
       </div>
 
       {/* Filters Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center gap-4">
-        <div className="relative flex-1 min-w-[300px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search transcript content..."
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-          />
-        </div>
-
         <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1">
           <Filter size={16} className="text-slate-500" />
           <select 
@@ -107,7 +95,7 @@ export default function GoldRecordsPage() {
               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Dialect</th>
               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Quality</th>
               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Finalized</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest text-right">Action</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest text-right">Noise</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -130,8 +118,15 @@ export default function GoldRecordsPage() {
                   <td className="px-6 py-4">
                     <div className="max-w-md">
                       <p className="text-sm font-medium text-white line-clamp-2">{rec.corrected_transcript}</p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-[10px] font-mono text-slate-600 uppercase tracking-tighter">RAW STT: {rec.raw_transcript.slice(0, 30)}...</span>
+                      <p className="text-[10px] font-mono text-slate-600 uppercase tracking-tighter mt-2">RAW STT: {rec.raw_transcript.slice(0, 30)}...</p>
+                      <p className="text-[11px] text-slate-500 mt-2">Register: {rec.register || "Unknown"} • Language: {rec.primary_language}</p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Provenance: session {rec.provenance.session_id?.slice(0, 8) || "n/a"} • teacher {rec.provenance.teacher_id?.slice(0, 8) || "n/a"}
+                      </p>
+                      <div className="mt-2 text-[10px] text-slate-500">
+                        Confidence: {rec.confidence_history?.length > 0
+                          ? rec.confidence_history.map((entry: any) => `${entry.change_reason}:${Math.round(entry.new_confidence * 100)}%`).join(" • ")
+                          : "no confidence history"}
                       </div>
                     </div>
                   </td>
@@ -158,13 +153,8 @@ export default function GoldRecordsPage() {
                       {new Date(rec.created_at).toLocaleDateString()}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors">
-                      <Play size={18} />
-                    </button>
-                    <button className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors">
-                      <MoreHorizontal size={18} />
-                    </button>
+                  <td className="px-6 py-4 text-right text-xs text-slate-500">
+                    {rec.noise_level || "n/a"}
                   </td>
                 </tr>
               ))
