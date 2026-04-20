@@ -13,6 +13,7 @@ from services.memory_service import StructuredSessionMemory, build_memory_summar
 from services.personality import ResponsePlan
 from services.prompt_builder import TeacherProfile, build_turn_guidance
 from services.teacher_modeling import TeacherModel
+from services.turn_intelligence import TurnIntelligence
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ def build_response_package(
     question_plan: QuestionPlan,
     response_plan: ResponsePlan,
     approved_rules: Sequence[UsageRule] = (),
+    turn_intelligence: TurnIntelligence | None = None,
 ) -> ResponsePackage:
     teacher_summary = _build_teacher_summary(teacher_model)
     memory_summary = build_memory_summary(session_memory)
@@ -71,6 +73,9 @@ def build_response_package(
     policy_block = behavior_policy.to_prompt_block()
     intelligence_block = (
         "## Input understanding\n"
+        f"- Intent label: {understanding.intent_label}\n"
+        f"- Intent confidence: {understanding.intent_confidence:.2f}\n"
+        f"- Secondary intents: {', '.join(understanding.secondary_intents) if understanding.secondary_intents else 'none'}\n"
         f"- Primary language: {understanding.primary_language}\n"
         f"- Secondary languages: {', '.join(understanding.secondary_languages) if understanding.secondary_languages else 'none'}\n"
         f"- Code-switch ratio: {understanding.code_switch_ratio:.2f}\n"
@@ -86,6 +91,15 @@ def build_response_package(
         f"- Prosody pattern: {understanding.prosody_pattern}\n"
         f"- Register estimate: {understanding.register_estimate}\n"
     )
+    if turn_intelligence is not None:
+        intelligence_block += (
+            "## Turn intelligence\n"
+            f"- Learning usable: {str(turn_intelligence.quality.usable_for_learning).lower()}\n"
+            f"- Learning reason if blocked: {turn_intelligence.quality.reason_if_not or 'n/a'}\n"
+            f"- Learning weight: {turn_intelligence.learning_weight:.2f}\n"
+            f"- Applied keyterms: {', '.join(turn_intelligence.keyterms.get('applied', [])) or 'none'}\n"
+            f"- Repaired transcript terms: {', '.join(change['to'] for change in turn_intelligence.transcript_repair.applied_repairs) or 'none'}\n"
+        )
     turn_guidance = build_turn_guidance(
         teacher_text,
         detected_language,

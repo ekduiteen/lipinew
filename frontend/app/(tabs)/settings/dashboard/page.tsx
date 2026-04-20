@@ -41,6 +41,8 @@ export default function DashboardPage() {
   }
 
   const languageEntries = Object.entries(overview.quality.recent_teacher_language_counts);
+  const intentEntries = Object.entries(overview.turn_intelligence.intent_distribution);
+  const extractionQualityEntries = Object.entries(overview.turn_intelligence.per_language_extraction_quality);
 
   return (
     <div className={styles.root}>
@@ -102,6 +104,61 @@ export default function DashboardPage() {
         <div className={styles.languageRow}>
           {languageEntries.map(([lang, count]) => (
             <span key={lang} className={styles.languageChip}>{lang}: {count}</span>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Turn Intelligence</h2>
+        <div className={styles.metricGrid}>
+          <Metric label="Correction rate" value={`${(overview.turn_intelligence.correction_rate * 100).toFixed(1)}%`} />
+          <Metric label="Casual chat rate" value={`${(overview.turn_intelligence.casual_chat_rate * 100).toFixed(1)}%`} />
+          <Metric label="Low-signal rate" value={`${(overview.turn_intelligence.low_signal_rate * 100).toFixed(1)}%`} />
+          <Metric label="Avg keyterm hits" value={overview.turn_intelligence.keyterm_hit_quality.avg_hits_per_keyterm_turn?.toFixed?.(2) ?? "0.00"} />
+        </div>
+        <div className={styles.languageRow}>
+          {intentEntries.map(([intent, count]) => (
+            <span key={intent} className={styles.languageChip}>{intent}: {count}</span>
+          ))}
+        </div>
+        <div className={styles.languageRow}>
+          {extractionQualityEntries.map(([lang, score]) => (
+            <span key={lang} className={styles.languageChip}>{lang}: {(score * 100).toFixed(0)}%</span>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Top Entities</h2>
+        <div className={styles.sampleList}>
+          {Object.entries(overview.turn_intelligence.top_entities_by_language).map(([lang, entries]) => (
+            <div key={lang} className={styles.sampleCard}>
+              <div className={styles.sampleMeta}>
+                <span>{lang}</span>
+                <span>{entries.length} entities</span>
+              </div>
+              <p className={styles.teacherText}>
+                {entries.map((entry) => `${entry.text} (${entry.count})`).join(", ") || "No entities yet"}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Recent Turn Intelligence</h2>
+        <div className={styles.sampleList}>
+          {overview.turn_intelligence.recent_turns.map((turn, idx) => (
+            <div key={`${turn.transcript}-${idx}`} className={styles.sampleCard}>
+              <div className={styles.sampleMeta}>
+                <span>{turn.intent_label}</span>
+                <span>{(turn.intent_confidence * 100).toFixed(0)}%</span>
+              </div>
+              <p className={styles.teacherText}>{turn.transcript}</p>
+              <p className={styles.lipiText}>
+                keyterms: {turn.applied_keyterms.join(", ") || "none"} | learning: {turn.usable_for_learning ? "usable" : "blocked"}
+              </p>
+            </div>
           ))}
         </div>
       </section>

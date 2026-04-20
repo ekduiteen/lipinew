@@ -49,7 +49,13 @@ class STTService:
             )
         ).strip()
 
-    def transcribe(self, audio_bytes: bytes) -> dict:
+    def transcribe(
+        self,
+        audio_bytes: bytes,
+        *,
+        prompt: str | None = None,
+        language_hint: str | None = None,
+    ) -> dict:
         """Transcribe audio bytes. Auto-detects language (ne/en)."""
         start = time.perf_counter()
 
@@ -70,7 +76,10 @@ class STTService:
 
         attempts: list[str | None] = []
         seen: set[str | None] = set()
-        for candidate in (self.language_hint, "en", None):
+        preferred_hint = (language_hint or self.language_hint or "").strip() or None
+        active_prompt = (prompt or self.initial_prompt or "").strip() or None
+
+        for candidate in (preferred_hint, "en", None):
             if candidate not in seen:
                 seen.add(candidate)
                 attempts.append(candidate)
@@ -85,7 +94,7 @@ class STTService:
                     vad_filter=True,
                     vad_parameters={"min_silence_duration_ms": 500},
                     language=language,
-                    initial_prompt=self.initial_prompt if language == self.language_hint else None,
+                    initial_prompt=active_prompt if language == preferred_hint else None,
                 )
             except ValueError as exc:
                 if "empty sequence" in str(exc):
@@ -111,7 +120,7 @@ class STTService:
                 or candidate_confidence > best_result["confidence"] + 0.03
                 or (
                     candidate_confidence >= best_result["confidence"] - 0.02
-                    and language == self.language_hint
+                    and language == preferred_hint
                 )
             ):
                 best_result = candidate_result

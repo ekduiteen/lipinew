@@ -4,7 +4,7 @@ const withPWA = withPWAInit({
   dest: "public",
   register: true,
   skipWaiting: true,
-  disable: false,
+  disable: process.env.NODE_ENV !== "production" || process.env.DISABLE_PWA === "1",
 });
 
 /** @type {import('next').NextConfig} */

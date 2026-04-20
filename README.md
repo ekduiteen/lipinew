@@ -120,6 +120,24 @@ The newest learning direction is also more conservative:
 - correction-derived rules are moving toward a review queue instead of being blindly trusted
 - audio-understanding sidecar signals are optional enrichment, not a hard dependency for the live path
 
+## Turn Intelligence State
+
+As of 2026-04-18, intent recognition, entity extraction, and keyterm boosting are first-class parts of the product.
+
+What is now live:
+- per-turn intent recognition with confidence and secondary labels
+- structured entity extraction for vocabulary, phrases, register terms, language names, corrected terms, glosses, and examples
+- session-aware keyterm preparation from memory, teacher history, admin seeds, and uncertain terms
+- cautious transcript repair for low-confidence critical words
+- normalized persistence in `message_analysis` and `message_entities`
+- dashboard and control visibility for intent distribution, entity counts, keyterm hit quality, and low-signal rate
+
+This preserves the product philosophy:
+- LIPI remains the student
+- the user remains the teacher
+- low-signal turns do not get treated as strong learning
+- corrections still carry the highest learning weight
+
 ## Verified Activation State
 
 As of 2026-04-18, the highest-value dormant intelligence paths are now active and re-verified:

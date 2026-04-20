@@ -1,5 +1,7 @@
 # LIPI System Architecture: 10× NVIDIA L40S
 
+> Current practical note: the live codebase now runs a single-L40S hybrid layout in production-like environments, but this document still describes the target multi-GPU architecture. The turn-intelligence, keyterm boosting, and control-plane sections below reflect the current implementation.
+
 ## Hardware Overview
 
 ### GPU Cluster Specification
@@ -129,6 +131,27 @@ To ensure high-fidelity STT and LLM performance, LIPI implements a "Gold Standar
 7. **CACHING**: Analytics queries are materialized in Valkey with a 15-minute TTL to ensure sub-10ms dashboard responsiveness.
 8. **TRAINING**: Tier 3 GPUs consume these snapshots for monthly LoRA fine-tuning.
 
+### Turn Intelligence Layer (Current Implementation)
+
+The teacher-turn path now has an explicit structured analysis stage between STT and long-term learning persistence.
+
+Current flow:
+1. prepare session-aware keyterms from memory, teacher history, admin seeds, and uncertain terms
+2. pass prompt/language hints to STT where possible
+3. repair low-confidence transcripts cautiously using keyterm context
+4. compute `turn_intelligence`:
+   - primary intent + confidence + secondary labels
+   - typed extracted entities
+   - keyterms applied
+   - code-switch analysis
+   - learning usability / reason / weight
+5. use the cheap result in the live WS path
+6. re-enrich the same turn in the async learning worker for authoritative persistence
+7. persist normalized analysis in `message_analysis` and `message_entities`
+8. expose aggregates in the teacher dashboard and control-system intelligence overview
+
+This design keeps the real-time chat loop responsive while still making intent/entity/keyterm data queryable and operational.
+
 ---
 
 ## Microservice Architecture
@@ -236,6 +259,14 @@ Concurrency: 8 STT + 4 TTS instances
 Latency Targets: STT <200ms, TTS <500ms
 Health Check: /health → {cuda_available, models_ready}
 ```
+
+### STT Hinting and Repair (Current Implementation)
+
+The current ML STT path does not rely on native Whisper keyterm bias APIs. The production approach is:
+- `prompt` and `language_hint` are sent from backend STT client to the ML `/stt` route
+- the ML service uses these as initial transcription hints when supported
+- backend transcript repair performs a second, conservative pass using session/history/admin keyterms
+- repair metadata is stored so operators can audit when a transcript was boosted instead of taken verbatim
 
 #### 4. vLLM Server (GPUs 0-4)
 ```yaml
@@ -561,4 +592,3 @@ Redundancy: Dual ISPs with automatic failover
 - TTS down → text output only
 - LLM down → fallback to generic response
 - PostgreSQL down → sessions cached in Redis (temporary)
-

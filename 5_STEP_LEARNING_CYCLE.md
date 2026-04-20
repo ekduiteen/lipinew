@@ -2,6 +2,15 @@
 
 LIPI learns from teachers through a repeatable 5-step cycle: **OBSERVE → PROCESS → REPEAT → EXTRACT → STORE**.
 
+As of `2026-04-18`, this cycle includes a production turn-intelligence layer:
+- session-aware keyterm preparation before STT
+- transcript repair for low-confidence critical words
+- per-turn intent recognition
+- structured entity extraction
+- code-switch analysis
+- learning usability / weighting
+- normalized storage in `message_analysis` and `message_entities`
+
 This cycle runs for every user message and represents LIPI's complete learning journey from raw input to persistent knowledge.
 
 ---
@@ -25,9 +34,9 @@ This cycle runs for every user message and represents LIPI's complete learning j
                     ▼
          ┌─────────────────────┐
          │  STEP 2: PROCESS    │ (Understand)
-         │  ├─ Tokenization    │
-         │  ├─ NER tagging     │
-         │  └─ Grammar analysis│
+         │  ├─ Intent labeling │
+         │  ├─ Entity extraction
+         │  └─ Code-switch scan│
          └──────────┬──────────┘
                     │
                     ▼
@@ -41,8 +50,8 @@ This cycle runs for every user message and represents LIPI's complete learning j
                     ▼
          ┌─────────────────────┐
          │  STEP 4: EXTRACT    │ (Learn from correction)
-         │  ├─ Compare intent  │
-         │  ├─ Extract vocabulary
+         │  ├─ Async enrichment│
+         │  ├─ Weight by intent
          │  └─ Update confidence│
          └──────────┬──────────┘
                     │
@@ -75,6 +84,27 @@ This cycle runs for every user message and represents LIPI's complete learning j
 ```
 
 ### Processing (GPU 5: STT)
+
+**Production update: keyterm-aware STT**
+```python
+keyterms = prepare_turn_keyterms(
+    session_memory=session_memory,
+    teacher_history=teacher_history,
+    admin_seed_lists=admin_keyterm_seeds,
+)
+
+stt_result = stt.transcribe(
+    audio_bytes,
+    prompt=keyterms.prompt_hint,
+    language_hint=selected_language,
+)
+
+repair = repair_transcript(
+    transcript=stt_result.text,
+    stt_confidence=stt_result.confidence,
+    keyterms=keyterms,
+)
+```
 
 **faster-whisper large-v3 inference:**
 ```python
@@ -145,6 +175,23 @@ language = "ne"
 ```
 
 ### Processing (GPU 7: NLP + CPU: stanza)
+
+**Production update: turn intelligence**
+```python
+turn_intelligence = analyze_turn(
+    hearing=hearing_result,
+    repaired_transcript=repair,
+    keyterms=keyterms,
+    memory_context=current_memory,
+)
+
+# Output includes:
+# - intent {label, confidence, secondary_labels}
+# - entities[]
+# - keyterms
+# - code_switch
+# - quality {usable_for_learning, reason_if_not, learning_weight}
+```
 
 **Tokenization:**
 ```python
@@ -241,6 +288,12 @@ dependencies = stanza_ne.parse(observed_text)
 ---
 
 ## Step 3: REPEAT — "Confirming Understanding"
+
+The live response path uses `turn_intelligence` lightly, not as a blocking heavy step:
+- `correction` → acknowledge more directly
+- `register_instruction` → update prompt/register immediately
+- `pronunciation_guidance` → preserve follow-up focus
+- `low_signal` → clarify instead of pretending strong learning happened
 
 **Goal**: Show LIPI is a student (ask for validation, not teach)
 
@@ -351,6 +404,16 @@ audio = vits_model.synthesize(response_text, speaker_id=closest_speaker_id)
 ---
 
 ## Step 4: EXTRACT — "Learning from Correction"
+
+The async learning worker now treats turn intelligence as the authoritative learning record.
+
+Rules:
+- `correction` turns get the highest learning weight
+- `teaching` turns get medium-high weight
+- `casual_chat` can contribute examples but with lower weight
+- `low_signal` turns are blocked from strong persistence
+- entity confidence gates what becomes vocabulary or usage rules
+- keyterm matches can lift confidence only when context agrees
 
 **Goal**: Learn when the teacher corrects LIPI (highest priority learning)
 
@@ -546,6 +609,14 @@ async def extract_learning(
 ---
 
 ## Step 5: STORE — "Remembering Forever"
+
+Teacher-turn persistence is now split cleanly:
+- `messages` keeps the immutable turn log
+- `message_analysis` stores normalized intent, keyterms, code-switch, usability, and repair metadata
+- `message_entities` stores structured entities
+- `knowledge_confidence_history` records confidence changes caused by learning and approved corrections
+
+This is what makes the dashboard and admin analytics able to inspect intent distribution, top extracted entities, low-signal rates, keyterm hit quality, and recent analyzed turns.
 
 **Goal**: Persist learning to databases and archives
 
@@ -818,4 +889,3 @@ Loop repeats → Cumulative improvement
 ```
 
 Every cycle strengthens LIPI's language knowledge and deepens the teacher-student relationship.
-

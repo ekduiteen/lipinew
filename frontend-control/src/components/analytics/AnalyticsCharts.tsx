@@ -19,9 +19,17 @@ interface ChartProps {
 }
 
 export function YieldAreaChart({ data }: ChartProps) {
+  if (!data.length) {
+    return (
+      <div className="flex h-full min-h-[18rem] w-full min-w-0 items-center justify-center rounded-2xl border border-dashed border-slate-800 text-sm text-slate-500">
+        No acquisition data yet.
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full w-full">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-full min-h-[18rem] w-full min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={288}>
         <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="colorGold" x1="0" y1="0" x2="0" y2="1">
@@ -77,9 +85,17 @@ export function YieldAreaChart({ data }: ChartProps) {
 }
 
 export function ModerationBarChart({ data }: ChartProps) {
+  if (!data.length) {
+    return (
+      <div className="flex h-full min-h-[18rem] w-full min-w-0 items-center justify-center rounded-2xl border border-dashed border-slate-800 text-sm text-slate-500">
+        No moderation timeline available yet.
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full w-full">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-full min-h-[18rem] w-full min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={288}>
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
           <XAxis 

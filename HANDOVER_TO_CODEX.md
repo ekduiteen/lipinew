@@ -11,6 +11,7 @@ This is the current engineer handover. Update this file when state changes.
 | Frontend | ✅ Healthy | Backend URL assumptions removed from runtime paths |
 | Control Frontend | ✅ Healthy | Builds successfully and reflects real moderation/export state |
 | WebSocket Teach Loop | ✅ Healthy | Memory + approved-rule read path wired at session start |
+| Turn Intelligence | ✅ Healthy | Intent, entities, keyterms, repair, and dashboard visibility are live |
 | Phrase Lab | ✅ Healthy | Primary + variation route wiring present |
 | Heritage | ✅ Healthy | Uses proxied backend routes |
 | Verification Harness | ✅ Improved | Activation and admin-control tests pass |
@@ -26,6 +27,13 @@ This is the current engineer handover. Update this file when state changes.
 - approved prior teachings appear in prompt guidance
 - low-trust extractions are diverted to review instead of direct learning
 - single-teacher vocabulary confidence is capped at `0.70` until stronger validation
+
+### Turn-intelligence state
+- `backend/services/keyterm_service.py` prepares per-turn candidates from memory, teacher history, admin seeds, and uncertain review items
+- `backend/services/transcript_repair.py` performs cautious low-confidence repair using those candidates
+- `backend/services/turn_intelligence.py` persists canonical turn analysis into `message_analysis` and `message_entities`
+- the live WS path consumes the cheap analysis; the async learning worker can enrich the same turn authoritatively
+- `/api/dashboard/overview` and `/api/ctrl/system/intelligence/overview` expose aggregate intent/entity/keyterm quality signals
 
 ### Admin/control hardening state
 - queue claiming with expiry and auto-release
@@ -69,6 +77,15 @@ Result:
 - `backend/services/memory_service.py`
 - `backend/services/response_orchestrator.py`
 - `backend/routes/sessions.py`
+
+### Turn intelligence
+- `backend/services/keyterm_service.py`
+- `backend/services/transcript_repair.py`
+- `backend/services/intent_classifier.py`
+- `backend/services/entity_extractor.py`
+- `backend/services/turn_intelligence.py`
+- `backend/tests/test_turn_intelligence.py`
+- `backend/alembic/versions/f2a3b4c5d6e7_turn_intelligence_layer.py`
 
 ### Admin / control
 - `backend/routes/admin_moderation.py`

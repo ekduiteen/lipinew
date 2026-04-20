@@ -21,6 +21,7 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -47,6 +48,7 @@ from services import input_understanding as input_understanding_svc
 from services import audio_understanding as audio_understanding_svc
 from services import message_store
 from services import learning as learning_svc
+from services import keyterm_service as keyterm_service_svc
 from services import memory_service as memory_service_svc
 from services import personality as personality_svc
 from services import behavior_policy as behavior_policy_svc
@@ -57,7 +59,9 @@ from services import response_cleanup as response_cleanup_svc
 from services import routing_hooks as routing_hooks_svc
 from services import teacher_modeling as teacher_modeling_svc
 from services import training_capture as training_capture_svc
+from services import transcript_repair as transcript_repair_svc
 from services import topic_memory as topic_memory_svc
+from services import turn_intelligence as turn_intelligence_svc
 from services import turn_interpreter as turn_interpreter_svc
 from services.prompt_builder import (
     TeacherProfile,
@@ -79,7 +83,10 @@ async def _load_message_history(session_id: str) -> list[dict]:
 
 
 async def _save_message_history(session_id: str, messages: list[dict]) -> None:
-    trimmed = messages[-(_MAX_CONTEXT_TURNS * 2):]
+    # Always preserve the system message at index 0; trim the rest
+    system = [messages[0]] if messages and messages[0].get("role") == "system" else []
+    rest = [m for m in messages if m.get("role") != "system"]
+    trimmed = system + rest[-(_MAX_CONTEXT_TURNS * 2):]
     await cache.valkey.setex(
         _MSG_HISTORY_KEY.format(session_id=session_id),
         3600,
@@ -308,15 +315,42 @@ async def conversation_ws(
                 return
 
             # ── 2. STT (OBSERVE) ─────────────────────────────────────────
+            session_turn_memory = await topic_memory_svc.load_session_memory(session_id)
+            async with SessionLocal() as keyterm_db:
+                turn_keyterms = await keyterm_service_svc.prepare_turn_keyterms(
+                    keyterm_db,
+                    teacher_id=user_id,
+                    session_memory=session_turn_memory,
+                    long_term_memory=long_term,
+                    target_language=profile.native_language,
+                )
+
             stt_t0 = time.monotonic()
-            stt_result = await stt_svc.transcribe(audio_bytes, http)
+            stt_result = await stt_svc.transcribe(
+                audio_bytes,
+                http,
+                prompt=turn_keyterms.prompt_hint,
+                language_hint=long_term.active_language or session_turn_memory.get("active_language") or None,
+            )
             stt_ms = int((time.monotonic() - stt_t0) * 1000)
 
             hearing = hearing_svc.analyze_hearing(stt_result)
-            teacher_text: str = hearing.clean_text
+            repair_result = transcript_repair_svc.repair_transcript(
+                transcript=hearing.clean_text,
+                stt_confidence=hearing.confidence,
+                keyterms=turn_keyterms,
+            )
+            teacher_text: str = repair_result.repaired_text.strip() or hearing.clean_text
             if not teacher_text:
                 await websocket.send_json({"type": "empty_audio"})
                 continue
+            effective_confidence = max(hearing.confidence, repair_result.confidence_after)
+            hearing = replace(
+                hearing,
+                clean_text=teacher_text,
+                confidence=effective_confidence,
+                audio_quality_score=max(hearing.audio_quality_score, min(effective_confidence, 0.99)),
+            )
 
             await websocket.send_json({
                 "type": "transcript",
@@ -325,6 +359,7 @@ async def conversation_ws(
                 "confidence": hearing.confidence,
                 "mode": hearing.mode,
                 "quality": hearing.quality_label,
+                "repair_applied": bool(repair_result.applied_repairs),
             })
 
             logger.debug(
@@ -350,14 +385,40 @@ async def conversation_ws(
             )
 
             # ── 4. LLM (stream tokens to client) ─────────────────────────
-            memory = await topic_memory_svc.load_session_memory(session_id)
+            memory = session_turn_memory
             memory["latest_teacher_text"] = teacher_text
             interpretation = turn_interpreter_svc.interpret_turn(hearing, memory)
+            turn_intelligence = turn_intelligence_svc.analyze_turn(
+                hearing=hearing,
+                repaired_transcript=repair_result,
+                keyterms=turn_keyterms,
+                memory_context=memory,
+            )
+            if turn_intelligence.intent.label == "register_instruction":
+                requested_register = next(
+                    (
+                        str(entity.attributes.get("register") or "").strip().lower()
+                        for entity in turn_intelligence.entities
+                        if entity.entity_type == "honorific_or_register_term"
+                    ),
+                    "",
+                )
+                if requested_register in {"hajur", "tapai", "timi", "ta"} and requested_register != profile.register:
+                    profile.register = requested_register
+                    system_prompt = build_system_prompt(profile) + cross_session_prompt_context
+                    message_history[0] = {"role": "system", "content": system_prompt}
+                    logger.info("Register adjusted from turn intelligence to %s", requested_register)
             understanding = input_understanding_svc.merge_signals(
                 turn_id=str(uuid.uuid4()),
                 hearing=hearing,
                 interpretation=interpretation,
                 audio_signals=audio_signals,
+                intent_label=turn_intelligence.intent.label,
+                intent_confidence=turn_intelligence.intent.confidence,
+                secondary_intents=turn_intelligence.intent.secondary_labels,
+                usable_for_learning=turn_intelligence.quality.usable_for_learning,
+                unusable_reason=turn_intelligence.quality.reason_if_not,
+                learning_weight=turn_intelligence.learning_weight,
                 memory_context=memory
             )
             async with SessionLocal() as db:
@@ -457,7 +518,15 @@ async def conversation_ws(
                 understanding=understanding,
                 behavior_policy=behavior_policy,
             )
-            clarification_only = not hearing.conversation_allowed or hearing.quality_label == "medium"
+            clarification_only = (
+                not hearing.conversation_allowed
+                or turn_intelligence.intent.label == "low_signal"
+                or (
+                    hearing.quality_label == "medium"
+                    and hearing.confidence < 0.64
+                    and turn_intelligence.intent.label in {"unknown", "confirmation", "clarification"}
+                )
+            )
             llm_ms = 0
             if clarification_only:
                 lipi_text = personality_svc.build_clarification_reply(hearing)
@@ -479,6 +548,7 @@ async def conversation_ws(
                     question_plan=plan,
                     response_plan=response_plan,
                     approved_rules=approved_rules,
+                    turn_intelligence=turn_intelligence,
                 )
                 turn_guidance = response_package.turn_guidance + (
                     "## Routing hooks\n"
@@ -509,7 +579,6 @@ async def conversation_ws(
                     message_history.pop()
                     message_history.pop()
                     message_history.append({"role": "user", "content": teacher_text})
-            lipi_text = response_cleanup_svc.finalize_reply(lipi_text, hearing)
             guard_result = post_generation_guard_svc.guard_response(
                 lipi_text,
                 hearing=hearing,
@@ -554,6 +623,7 @@ async def conversation_ws(
                     understanding=understanding,
                     interpretation=interpretation,
                     behavior_policy=behavior_policy,
+                    turn_intelligence=turn_intelligence,
                 )
                 teacher_message = await message_store.persist_teacher_turn(
                     db,
@@ -617,6 +687,15 @@ async def conversation_ws(
                         "source": "correction_graph_v1",
                     }
                     teacher_message.high_value_signals_json = updated_high_value
+                await turn_intelligence_svc.persist_turn_intelligence(
+                    db,
+                    message_id=teacher_message.id,
+                    session_id=session_id,
+                    teacher_id=user_id,
+                    transcript_original=repair_result.original_text,
+                    transcript_final=teacher_text,
+                    intelligence=turn_intelligence,
+                )
                 await teacher_modeling_svc.record_teacher_signals(
                     db,
                     teacher_id=user_id,
@@ -632,7 +711,7 @@ async def conversation_ws(
                     transcript_confidence=understanding.transcript_confidence,
                     session_id=session_id,
                 )
-                await memory_service_svc.update_session_memory(
+                updated_structured_memory = await memory_service_svc.update_session_memory(
                     db,
                     session_id=session_id,
                     teacher_id=user_id,
@@ -668,6 +747,7 @@ async def conversation_ws(
                         plan=plan,
                     )
                 await db.commit()
+                long_term = updated_structured_memory
 
             turn_index += 2
 
@@ -686,6 +766,8 @@ async def conversation_ws(
                 turn_interpretation=interpretation.to_dict(),
                 input_understanding=understanding.to_dict(),
                 behavior_policy=behavior_policy.to_dict(),
+                teacher_message_id=teacher_message.id,
+                turn_intelligence=turn_intelligence.to_dict(),
                 audio_path=audio_path,
                 target_language=profile.native_language,
             )

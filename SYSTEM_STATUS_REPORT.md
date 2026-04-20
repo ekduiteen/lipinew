@@ -3,7 +3,7 @@
 ## Executive Summary
 ✅ **SYSTEM OPERATIONAL**
 
-The recent learning-loop activation work and the admin/control hardening are both now verified in code and targeted execution.
+The recent learning-loop activation work, admin/control hardening, and the new turn-intelligence upgrade are now verified in code and targeted execution.
 
 Verified activation state:
 - approved corrections update persistent knowledge
@@ -18,6 +18,12 @@ Verified control-system state:
 - moderation metrics are computed from DB state
 - dataset snapshots are auditable and downloadable end-to-end
 - `frontend-control` builds successfully with the current code
+
+Verified turn-intelligence state:
+- teacher turns now persist intent, entities, keyterms, code-switch, repair metadata, and learning usability
+- keyterm boosting is applied before STT and during transcript repair/extraction
+- low-signal turns are downgraded in learning weight instead of being treated as clean evidence
+- dashboard and control analytics expose recent analyzed turns and aggregate quality signals
 
 ---
 

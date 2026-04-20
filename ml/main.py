@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 import soundfile as sf
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         logger.exception("STT startup failed")
 
     try:
-        provider = os.getenv("TTS_PROVIDER", "coqui")
+        provider = os.getenv("TTS_PROVIDER", "piper")
         logger.info("Loading TTS (provider=%s)...", provider)
         tts_service = TTSService(device=os.getenv("TTS_DEVICE", "cuda:0"))
         logger.info("TTS loaded (active=%s fallback=%s)", tts_service.active_provider, tts_service.fallback_provider)
@@ -69,11 +69,14 @@ async def lifespan(app: FastAPI):
         speaker_embed_error = str(exc)
         logger.exception("Speaker embedding startup failed")
 
-    if stt_service is None or tts_service is None or speaker_embed_service is None:
+    # STT and TTS are required; speaker embeddings are optional (async learning only)
+    if stt_service is None or tts_service is None:
         raise RuntimeError(
-            "ML service failed to hot-load required models: "
-            f"stt_error={stt_error!r} tts_error={tts_error!r} speaker_embed_error={speaker_embed_error!r}"
+            "ML service failed to load required models: "
+            f"stt_error={stt_error!r} tts_error={tts_error!r}"
         )
+    if speaker_embed_service is None:
+        logger.warning("Speaker embedding service unavailable — proceeding in degraded mode: %s", speaker_embed_error)
 
     yield
 
@@ -137,13 +140,21 @@ async def health() -> HealthResponse:
 
 
 @app.post("/stt", response_model=STTResponse)
-async def speech_to_text(audio: UploadFile = File(...)) -> STTResponse:
+async def speech_to_text(
+    audio: UploadFile = File(...),
+    prompt: str = Form(""),
+    language_hint: str = Form(""),
+) -> STTResponse:
     if stt_service is None:
         raise HTTPException(status_code=503, detail=f"STT service not ready: {stt_error or 'unknown error'}")
 
     audio_bytes = await audio.read()
     try:
-        result = stt_service.transcribe(audio_bytes)
+        result = stt_service.transcribe(
+            audio_bytes,
+            prompt=prompt.strip() or None,
+            language_hint=language_hint.strip() or None,
+        )
         return STTResponse(**result)
     except Exception as exc:
         logger.exception("STT failed")

@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     learning_min_stt_confidence: float = 0.8
     learning_required_teacher_language: str = "ne"
     learning_max_reply_chars: int = 220
+    enable_intent_recognition: bool = True
+    enable_entity_extraction: bool = True
+    enable_keyterm_boosting: bool = True
+    max_session_keyterms: int = 10
+    max_teacher_history_keyterms: int = 8
+    max_admin_seed_keyterms: int = 12
+    transcript_repair_enabled: bool = True
+    transcript_repair_min_confidence: float = 0.86
+    learning_min_intent_confidence: float = 0.55
+    learning_min_entity_confidence: float = 0.6
 
     # vLLM
     vllm_url: str = "http://vllm:8080"

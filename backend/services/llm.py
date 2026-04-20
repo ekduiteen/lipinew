@@ -5,6 +5,7 @@ Never call Groq directly; it only fires when local vLLM fails.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import AsyncIterator
@@ -146,7 +147,6 @@ async def _vllm_stream(
             data = line[6:]
             if data == "[DONE]":
                 break
-            import json
             chunk = json.loads(data)
             delta = chunk["choices"][0]["delta"].get("content", "")
             if delta:

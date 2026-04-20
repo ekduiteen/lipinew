@@ -200,6 +200,35 @@ class TestPostGenerationGuard:
         assert result.action == "rewrite"
         assert "natural way" in result.text.lower()
 
+    def test_keeps_specific_content_when_only_followup_is_generic(self):
+        hearing = _hearing("Jojolopa means hello", language="en")
+        interpretation = interpret_turn(hearing, {})
+        understanding = input_understanding_svc.analyze_input(hearing, interpretation)
+        policy = behavior_policy_svc.BehaviorPolicy(
+            response_language="ne",
+            mirror_code_switching=False,
+            register="tapai",
+            tone_style="curious_warm",
+            uncertainty_level=0.1,
+            curiosity_level=0.8,
+            confirmation_style="light_ack",
+            max_followups=1,
+            allowed_humor=0.1,
+            infer_vs_ask="infer",
+            dialect_alignment="neutral",
+            politeness_level="high",
+        )
+
+        result = post_generation_guard_svc.guard_response(
+            "जोजोलोपा भनेको अभिवादन हो। अरू के सिकाउँछौ?",
+            hearing=hearing,
+            understanding=understanding,
+            policy=policy,
+        )
+
+        assert result.action == "approve"
+        assert result.text == "जोजोलोपा भनेको अभिवादन हो।"
+
 
 class TestTeacherCredibility:
     @pytest.mark.asyncio

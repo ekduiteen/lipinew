@@ -154,6 +154,96 @@ class UsageRule(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+
+class MessageAnalysis(Base):
+    __tablename__ = "message_analysis"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    message_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("messages.id", ondelete="CASCADE"), unique=True
+    )
+    session_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("teaching_sessions.id", ondelete="CASCADE")
+    )
+    teacher_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    analysis_version: Mapped[str] = mapped_column(Text, default="turn_intelligence_v1")
+    analysis_mode: Mapped[str] = mapped_column(Text, default="live")
+    primary_language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    secondary_languages: Mapped[list] = mapped_column(JSONB, default=list)
+    transcript_original: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_final: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_repair_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    intent_label: Mapped[str] = mapped_column(Text, default="low_signal")
+    intent_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    secondary_labels: Mapped[list] = mapped_column(JSONB, default=list)
+    keyterms_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    code_switch_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    quality_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    usability_score: Mapped[float] = mapped_column(Float, default=0.0)
+    learning_weight: Mapped[float] = mapped_column(Float, default=0.0)
+    model_source: Mapped[str] = mapped_column(Text, default="turn_intelligence_v1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class MessageEntity(Base):
+    __tablename__ = "message_entities"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    message_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("messages.id", ondelete="CASCADE")
+    )
+    session_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("teaching_sessions.id", ondelete="CASCADE")
+    )
+    teacher_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    text: Mapped[str] = mapped_column(Text)
+    normalized_text: Mapped[str] = mapped_column(Text)
+    entity_type: Mapped[str] = mapped_column(Text)
+    language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attributes_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class AdminKeytermSeed(Base):
+    __tablename__ = "admin_keyterm_seeds"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    language_key: Mapped[str] = mapped_column(Text, default="ne")
+    seed_text: Mapped[str] = mapped_column(Text)
+    normalized_text: Mapped[str] = mapped_column(Text)
+    entity_type: Mapped[str] = mapped_column(Text, default="vocabulary")
+    domain_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+    source_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("admin_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
 class ReviewQueueItem(Base):
     __tablename__ = "review_queue_items"
 

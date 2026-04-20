@@ -14,34 +14,58 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#8B7FD4",
+  themeColor: "#F4F1EA",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
 };
 
+const VALID_THEMES = new Set(["bone", "lavender", "sage", "warm", "ink", "pastel", "dark"]);
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ne" data-theme="pastel" suppressHydrationWarning>
+    <html lang="ne" data-theme="bone" suppressHydrationWarning>
       <head>
-        {/* Runs synchronously before first paint — prevents theme flash */}
+        {/* Google Fonts preconnect */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+
+        {/* Synchronous theme restore — runs before first paint to prevent flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('lipi.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('lipi.theme');if(t&&${JSON.stringify([...VALID_THEMES])}.includes(t))document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
           }}
         />
-        {/* Foolproof PWA Service Worker Registration */}
+
+        {/* PWA Service Worker */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(function(reg) {
-                    console.log('PWA Service Worker registered with scope: ', reg.scope);
-                  }, function(err) {
-                    console.log('PWA Service Worker registration failed: ', err);
-                  });
+                window.addEventListener('load', function () {
+                  var isLocalHost =
+                    window.location.hostname === 'localhost' ||
+                    window.location.hostname === '127.0.0.1';
+
+                  if (isLocalHost) {
+                    navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                      registrations.forEach(function (registration) {
+                        registration.unregister();
+                      });
+                    }).catch(function () {});
+
+                    if ('caches' in window) {
+                      caches.keys().then(function (keys) {
+                        keys.forEach(function (key) {
+                          caches.delete(key);
+                        });
+                      }).catch(function () {});
+                    }
+                    return;
+                  }
+
+                  navigator.serviceWorker.register('/sw.js').catch(function(){});
                 });
               }
             `,

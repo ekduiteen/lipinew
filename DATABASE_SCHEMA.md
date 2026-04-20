@@ -56,6 +56,41 @@ These fields are how each teacher turn now stores:
 2. derived language/style/dialect signals
 3. high-value learning signals
 
+### `message_analysis`
+Normalized per-message turn intelligence.
+
+Tracks:
+- `intent_label`
+- `intent_confidence`
+- `secondary_intents_json`
+- `primary_language`
+- `secondary_language`
+- `code_switch_json`
+- `quality_json`
+- `keyterms_json`
+- `transcript_original`
+- `transcript_final`
+- `transcript_repair_metadata`
+
+Current use:
+- written for teacher turns in the teach loop and refreshed by the async learning worker
+- read by dashboard analytics and admin intelligence overview
+
+### `message_entities`
+Structured entities extracted from a teacher turn.
+
+Tracks:
+- raw `text`
+- `normalized_text`
+- `entity_type`
+- `language`
+- `confidence`
+- `source_start` / `source_end`
+- `attributes_json`
+
+Current use:
+- powers vocabulary persistence, gloss capture, register tracking, correction targets, and dashboard entity analytics
+
 ## Intelligence Layer Tables
 
 ### `user_curriculum_profiles`
@@ -117,6 +152,22 @@ How confidence in learned knowledge changes over time.
 
 ### `usage_rules`
 Extracted usage/correction notes that can become future product knowledge.
+
+### `admin_keyterm_seeds`
+Admin-curated keyterm seed lists for STT prompting, transcript repair, and extraction boosting.
+
+Tracks:
+- `language_key`
+- `term`
+- `normalized_term`
+- `entity_type`
+- `weight`
+- `is_active`
+- optional metadata JSON
+
+Current use:
+- merged into per-turn keyterm candidates before STT
+- exposed in admin system endpoints for visibility and curation
 
 ## Gamification Tables
 
@@ -195,6 +246,7 @@ Human-in-the-loop review queue for extracted correction claims and future rule a
 
 Current use:
 - correction-derived rules can be staged for approval instead of being blindly trusted
+- low-trust extraction candidates are also staged here with `model_source = learning_validation_guard`
 
 ## Admin Control Tables
 
@@ -222,6 +274,22 @@ Recent important migrations (in order):
 - `a7c6e1d9f210_phrase_lab_and_review_queue.py` — Phrase Lab tables + review queue (NEW)
 - `b8d7e4c3f920_heritage_sessions.py` — Heritage mode tables (NEW)
 - `c9d8e7f6a5b4_admin_and_gold_layer.py` — Admin auth, Gold records, and Audit logs (NEW)
+- `d1e2f3a4b5c6_vocabulary_reliability.py` — vocabulary reliability controls + approval index
+- `e6f7a8b9c0d1_admin_queue_claims_and_metrics.py` — queue claims, moderation indexes, real control metrics support
+- `f2a3b4c5d6e7_turn_intelligence_layer.py` — message analysis, message entities, admin keyterm seeds, seed bootstrap
+
+## Turn Intelligence Storage Rules
+
+The production path for teacher-turn analysis is now:
+1. `messages` stores the canonical transcript and capture envelopes
+2. `message_analysis` stores intent, keyterms, code-switch, repair metadata, and learning usability
+3. `message_entities` stores extracted typed entities
+4. `knowledge_confidence_history` records persistence-confidence changes caused by corrected or learned knowledge
+
+This separation is intentional:
+- `messages` remains the immutable conversation log
+- `message_analysis` is the normalized analytical view
+- `message_entities` keeps entity analytics queryable without unpacking JSON
 
 ## Practical Rule
 

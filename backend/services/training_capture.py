@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from services.behavior_policy import BehaviorPolicy
 from services.input_understanding import InputUnderstanding
+from services.turn_intelligence import TurnIntelligence
 from services.turn_interpreter import TurnInterpretation
 
 
@@ -47,6 +48,7 @@ def build_training_capture(
     taught_words: list[str] | None = None,
     usage_rules: list[str] | None = None,
     cultural_notes: list[str] | None = None,
+    turn_intelligence: TurnIntelligence | None = None,
 ) -> TrainingCaptureEnvelope:
     timestamp = datetime.now(timezone.utc).isoformat()
     source = "input_understanding_v1"
@@ -63,6 +65,16 @@ def build_training_capture(
     }
 
     derived_signals = {
+        "intent_label": _signal(
+            turn_intelligence.intent.label if turn_intelligence else understanding.intent_label,
+            turn_intelligence.intent.confidence if turn_intelligence else understanding.intent_confidence,
+            "turn_intelligence_v1" if turn_intelligence else source,
+        ),
+        "secondary_intents": _signal(
+            turn_intelligence.intent.secondary_labels if turn_intelligence else understanding.secondary_intents,
+            0.6,
+            "turn_intelligence_v1" if turn_intelligence else source,
+        ),
         "primary_language": _signal(understanding.primary_language, 0.85, source),
         "secondary_languages": _signal(understanding.secondary_languages, 0.65, source),
         "code_switch_ratio": _signal(understanding.code_switch_ratio, 0.7, source),
@@ -75,10 +87,20 @@ def build_training_capture(
         "prosody": _signal(understanding.prosody_pattern, 0.5, source),
         "emotion": _signal(interpretation.emotion_hint, 0.55 if interpretation.emotion_hint else 0.0, "turn_interpreter_v1"),
         "pronunciation_style": _signal(understanding.pronunciation_style, 0.55, source),
+        "code_switch_analysis": _signal(
+            turn_intelligence.code_switch.to_dict() if turn_intelligence else {},
+            0.75 if turn_intelligence else 0.0,
+            "turn_intelligence_v1" if turn_intelligence else source,
+        ),
     }
 
     high_value_signals = {
         "is_correction": _signal(understanding.is_correction, 0.9 if understanding.is_correction else 0.7, "turn_interpreter_v1"),
+        "turn_intelligence": _signal(
+            turn_intelligence.to_dict() if turn_intelligence else {},
+            0.82 if turn_intelligence else 0.0,
+            "turn_intelligence_v1" if turn_intelligence else source,
+        ),
         "correction_event_id": _signal(correction_event_id, 1.0 if correction_event_id else 0.0, "correction_graph_v1"),
         "taught_words": _signal(taught_words or interpretation.taught_terms, 0.8 if (taught_words or interpretation.taught_terms) else 0.2, "turn_interpreter_v1"),
         "usage_rules": _signal(usage_rules or [], 0.0 if not usage_rules else 0.75, "learning_worker_v1"),
@@ -98,6 +120,11 @@ def build_training_capture(
         "speech_rate": _signal(understanding.speech_rate, 0.55, source),
         "prosody_pattern": _signal(understanding.prosody_pattern, 0.5, source),
         "audio_quality_score": _signal(getattr(understanding, "transcript_confidence", 0.0), 0.6, "hearing_v1"),
+        "transcript_repair": _signal(
+            turn_intelligence.transcript_repair.to_dict() if turn_intelligence else {},
+            0.7 if turn_intelligence and turn_intelligence.transcript_repair.applied_repairs else 0.0,
+            "turn_intelligence_v1" if turn_intelligence else source,
+        ),
     }
 
     nuance_signals = {
@@ -106,6 +133,11 @@ def build_training_capture(
         "tone": _signal(understanding.tone, 0.7, source),
         "topic": _signal(understanding.topic, 0.72, "turn_interpreter_v1"),
         "response_language": _signal(behavior_policy.response_language, 0.85, "behavior_policy_v1"),
+        "learning_weight": _signal(
+            turn_intelligence.learning_weight if turn_intelligence else understanding.learning_weight,
+            0.8,
+            "turn_intelligence_v1" if turn_intelligence else source,
+        ),
     }
 
     return TrainingCaptureEnvelope(

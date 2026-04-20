@@ -54,6 +54,27 @@ def _sentences(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.!?।])\s+", text) if part.strip()]
 
 
+def _trim_generic_followup(text: str) -> str:
+    sentences = _sentences(text)
+    if not sentences:
+        return text.strip()
+
+    filtered: list[str] = []
+    removed = False
+    for sentence in sentences:
+        lowered = sentence.lower()
+        if any(phrase in lowered for phrase in _GENERIC_LOW_VALUE_QUESTIONS):
+            removed = True
+            continue
+        filtered.append(sentence)
+
+    if filtered:
+        return " ".join(filtered).strip()
+    if removed:
+        return ""
+    return text.strip()
+
+
 def _fallback_safe_response(hearing: HearingResult, policy: BehaviorPolicy) -> str:
     if policy.response_language == "en" or hearing.mode == "english":
         return "Okay. Can you say that in one simple way?"
@@ -98,12 +119,18 @@ def guard_response(
     if policy.politeness_level == "high" and any(token in lowered for token in ("तँ", "bro", "buddy")):
         reasons.append("politeness_mismatch")
 
-    if any(reason in reasons for reason in ("weak_student_behavior", "language_purity_risk", "generic_followup", "politeness_mismatch")):
+    hard_rewrite_reasons = {"weak_student_behavior", "language_purity_risk", "politeness_mismatch"}
+    if any(reason in reasons for reason in hard_rewrite_reasons):
         if policy.response_language == "en":
             rewritten = "Got it. What would be the natural way to say that?"
         else:
             rewritten = "ठिक छ। यसलाई स्वाभाविक रूपमा कसरी भन्छन्?"
         return GuardResult(action="rewrite", text=rewritten, reasons=reasons)
+
+    if "generic_followup" in reasons:
+        cleaned = _trim_generic_followup(cleaned)
+        if cleaned:
+            return GuardResult(action="approve", text=cleaned, reasons=reasons)
 
     if not cleaned:
         return GuardResult(action="fallback", text=_fallback_safe_response(hearing, policy), reasons=["empty_after_cleanup"])

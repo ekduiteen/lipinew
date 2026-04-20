@@ -23,6 +23,27 @@
 
 ---
 
+## Production Keyterm Boosting (2026-04-18)
+
+The live STT path is now keyterm-aware.
+
+Current backend behavior:
+- build per-turn keyterm candidates from:
+  - session memory
+  - recently corrected words
+  - teacher history
+  - admin-curated seed lists
+  - repeated uncertain words
+- send `prompt` and `language_hint` to ML `/stt`
+- apply a conservative transcript-repair pass only for lower-confidence transcripts
+
+Important constraint:
+- faster-whisper is not treated as if it had a magical native bias API
+- LIPI uses prompt biasing plus post-STT repair/reranking instead
+- repairs are stored explicitly in `message_analysis.transcript_repair_metadata`
+
+---
+
 ## Inference Architecture
 
 ### GPU Memory Layout (GPU 5)
@@ -540,4 +561,3 @@ Benefit: Perceived latency <100ms
 - [ ] WER evaluated on test set
 - [ ] Load test: 64 concurrent users
 - [ ] Monitoring alerts configured
-

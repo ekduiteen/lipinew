@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections import Counter
 
@@ -63,6 +64,28 @@ class RecentSample(BaseModel):
     lipi_text: str
 
 
+class TurnIntelligenceSample(BaseModel):
+    transcript: str
+    intent_label: str
+    intent_confidence: float
+    primary_language: str | None
+    usable_for_learning: bool
+    applied_keyterms: list[str]
+    entities: list[dict]
+
+
+class TurnIntelligenceReport(BaseModel):
+    intent_distribution: dict[str, int]
+    top_entities_by_language: dict[str, list[dict]]
+    correction_rate: float
+    casual_chat_rate: float
+    low_signal_rate: float
+    keyterm_hit_quality: dict[str, float]
+    top_uncertain_words: list[dict]
+    per_language_extraction_quality: dict[str, float]
+    recent_turns: list[TurnIntelligenceSample]
+
+
 class DashboardOverview(BaseModel):
     system: dict[str, ServiceStatus]
     queues: QueueStatus
@@ -71,6 +94,7 @@ class DashboardOverview(BaseModel):
     curriculum: dict
     speaker_embeddings: dict
     recent_samples: list[RecentSample]
+    turn_intelligence: TurnIntelligenceReport
 
 
 _CONFUSED_REPLY_MARKERS = (
@@ -87,8 +111,13 @@ _HINDI_REPLY_MARKERS = ("कैसे", "क्या", "है", "हूँ", "
 async def _fetch_json(http, url: str) -> tuple[bool, dict | None]:
     try:
         resp = await http.get(url, timeout=4.0)
-        resp.raise_for_status()
-        return True, resp.json()
+        maybe_raise = resp.raise_for_status()
+        if inspect.isawaitable(maybe_raise):
+            await maybe_raise
+        payload = resp.json()
+        if inspect.isawaitable(payload):
+            payload = await payload
+        return True, payload if isinstance(payload, dict) else None
     except Exception:
         return False, None
 
@@ -100,6 +129,17 @@ def _is_confused_reply(text_value: str) -> bool:
 def _is_hindi_mixed_reply(text_value: str) -> bool:
     lowered = text_value.lower()
     return any(marker in lowered for marker in _HINDI_REPLY_MARKERS)
+
+
+def _json_or_default(value, default):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return default
+    return value
 
 
 @router.get("/overview", response_model=DashboardOverview)
@@ -138,13 +178,21 @@ async def get_dashboard_overview(
                 (SELECT COUNT(*) FROM correction_events) AS correction_event_count,
                 (SELECT COUNT(*) FROM session_memory_snapshots) AS memory_snapshot_count,
                 (SELECT COUNT(*) FROM teacher_credibility_events) AS credibility_event_count,
-                (SELECT COUNT(*) FROM teacher_signals) AS teacher_signal_count,
-                (SELECT COUNT(*) FROM speaker_embeddings) AS speaker_embedding_count,
-                (SELECT COUNT(DISTINCT dialect_cluster_id) FROM speaker_embeddings WHERE dialect_cluster_id IS NOT NULL) AS speaker_cluster_count
+                (SELECT COUNT(*) FROM teacher_signals) AS teacher_signal_count
             """
         )
     )
     total_row = totals.one()
+    try:
+        speaker_embedding_count = int(
+            await db.scalar(text("SELECT COUNT(*) FROM speaker_embeddings")) or 0
+        )
+        speaker_cluster_count = int(
+            await db.scalar(text("SELECT COUNT(DISTINCT dialect_cluster_id) FROM speaker_embeddings WHERE dialect_cluster_id IS NOT NULL")) or 0
+        )
+    except Exception:
+        speaker_embedding_count = 0
+        speaker_cluster_count = 0
 
     recent_rows = await db.execute(
         text(
@@ -298,7 +346,133 @@ async def get_dashboard_overview(
         str(row.topic_key): float(row.correction_density or 0.0)
         for row in correction_yield_rows
     }
-    speaker_cluster_summary = await speaker_clustering_svc.get_cluster_summary(db)
+    try:
+        speaker_cluster_summary = await speaker_clustering_svc.get_cluster_summary(db)
+    except Exception:
+        speaker_cluster_summary = {
+            "total_embeddings": 0,
+            "assigned_clusters": 0,
+            "cluster_count": 0,
+            "clusters": [],
+        }
+    analysis_rows = await db.execute(
+        text(
+            """
+            SELECT
+                ma.message_id,
+                ma.intent_label,
+                ma.intent_confidence,
+                ma.primary_language,
+                ma.keyterms_json,
+                ma.quality_json,
+                ma.code_switch_json,
+                ma.transcript_repair_metadata,
+                ma.transcript_final,
+                me.text AS entity_text,
+                me.normalized_text,
+                me.entity_type,
+                me.language AS entity_language,
+                me.confidence AS entity_confidence
+            FROM message_analysis ma
+            LEFT JOIN message_entities me
+              ON me.message_id = ma.message_id
+            ORDER BY ma.created_at DESC
+            LIMIT 300
+            """
+        )
+    )
+    analysis_data = analysis_rows.mappings().all()
+    intent_distribution: Counter[str] = Counter()
+    entity_counts: dict[str, Counter[str]] = {}
+    extraction_quality: dict[str, list[float]] = {}
+    recent_turns_map: dict[str, dict] = {}
+    total_analysis_rows = 0
+    correction_count = 0
+    casual_count = 0
+    low_signal_count = 0
+    keyterm_hits = 0
+    keyterm_turns = 0
+    repair_turns = 0
+
+    for row in analysis_data:
+        message_id = str(row["message_id"])
+        if message_id not in recent_turns_map:
+            total_analysis_rows += 1
+            intent_label = str(row["intent_label"] or "unknown")
+            intent_distribution[intent_label] += 1
+            if intent_label == "correction":
+                correction_count += 1
+            if intent_label == "casual_chat":
+                casual_count += 1
+            if intent_label == "low_signal":
+                low_signal_count += 1
+            keyterms_json = _json_or_default(row["keyterms_json"], {})
+            quality_json = _json_or_default(row["quality_json"], {})
+            applied = list(keyterms_json.get("applied", []) or [])
+            if applied:
+                keyterm_turns += 1
+                keyterm_hits += len(applied)
+            repair_meta = row["transcript_repair_metadata"] or {}
+            if _json_or_default(repair_meta, {}).get("applied_repairs"):
+                repair_turns += 1
+            recent_turns_map[message_id] = {
+                "transcript": str(row["transcript_final"] or ""),
+                "intent_label": intent_label,
+                "intent_confidence": float(row["intent_confidence"] or 0.0),
+                "primary_language": row["primary_language"],
+                "usable_for_learning": bool((quality_json or {}).get("usable_for_learning", False)),
+                "applied_keyterms": applied,
+                "entities": [],
+            }
+
+        if row["entity_text"]:
+            language_key = str(row["entity_language"] or row["primary_language"] or "unknown")
+            entity_counts.setdefault(language_key, Counter())[str(row["normalized_text"] or row["entity_text"])] += 1
+            extraction_quality.setdefault(language_key, []).append(float(row["entity_confidence"] or 0.0))
+            if len(recent_turns_map[message_id]["entities"]) < 6:
+                recent_turns_map[message_id]["entities"].append(
+                    {
+                        "text": row["entity_text"],
+                        "normalized_text": row["normalized_text"],
+                        "entity_type": row["entity_type"],
+                        "language": row["entity_language"],
+                        "confidence": float(row["entity_confidence"] or 0.0),
+                    }
+                )
+
+    uncertain_rows = await db.execute(
+        text(
+            """
+            SELECT extracted_claim, COUNT(*) AS hit_count
+            FROM review_queue_items
+            WHERE model_source = 'learning_validation_guard'
+            GROUP BY extracted_claim
+            ORDER BY hit_count DESC, MAX(created_at) DESC
+            LIMIT 10
+            """
+        )
+    )
+    top_uncertain_words = [
+        {"text": str(claim), "count": int(count or 0)}
+        for claim, count in uncertain_rows.all()
+        if claim
+    ]
+    top_entities_by_language = {
+        language: [
+            {"text": entity_text, "count": count}
+            for entity_text, count in counter.most_common(6)
+        ]
+        for language, counter in entity_counts.items()
+    }
+    per_language_extraction_quality = {
+        language: round(sum(values) / len(values), 3)
+        for language, values in extraction_quality.items()
+        if values
+    }
+    recent_turns = [
+        TurnIntelligenceSample(**row)
+        for row in list(recent_turns_map.values())[:10]
+    ]
 
     return DashboardOverview(
         system={
@@ -337,8 +511,8 @@ async def get_dashboard_overview(
             memory_snapshot_count=int(total_row.memory_snapshot_count or 0),
             credibility_event_count=int(total_row.credibility_event_count or 0),
             teacher_signal_count=int(total_row.teacher_signal_count or 0),
-            speaker_embedding_count=int(total_row.speaker_embedding_count or 0),
-            speaker_cluster_count=int(total_row.speaker_cluster_count or 0),
+            speaker_embedding_count=speaker_embedding_count,
+            speaker_cluster_count=speaker_cluster_count,
         ),
         curriculum={
             "topic_distribution_by_user": topic_distribution,
@@ -353,4 +527,20 @@ async def get_dashboard_overview(
             **speaker_cluster_summary,
         },
         recent_samples=samples,
+        turn_intelligence=TurnIntelligenceReport(
+            intent_distribution=dict(intent_distribution),
+            top_entities_by_language=top_entities_by_language,
+            correction_rate=round(correction_count / max(total_analysis_rows, 1), 3),
+            casual_chat_rate=round(casual_count / max(total_analysis_rows, 1), 3),
+            low_signal_rate=round(low_signal_count / max(total_analysis_rows, 1), 3),
+            keyterm_hit_quality={
+                "avg_hits_per_keyterm_turn": round(keyterm_hits / max(keyterm_turns, 1), 3),
+                "turns_with_keyterms": float(keyterm_turns),
+                "turns_with_analysis": float(total_analysis_rows),
+                "repair_turn_rate": round(repair_turns / max(total_analysis_rows, 1), 3),
+            },
+            top_uncertain_words=top_uncertain_words,
+            per_language_extraction_quality=per_language_extraction_quality,
+            recent_turns=recent_turns,
+        ),
     )

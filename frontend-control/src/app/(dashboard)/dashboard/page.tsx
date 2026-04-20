@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [dialect, setDialect] = useState("");
   const [register, setRegister] = useState("");
   const [summary, setSummary] = useState<any>(null);
+  const [intelligence, setIntelligence] = useState<any>(null);
 
   const fetchStats = async () => {
     setLoading(true);
@@ -29,11 +30,23 @@ export default function DashboardPage() {
         params: { dialect, register }
       });
       setStats(data);
-      
+
       const { data: summaryData } = await api.get("/ctrl/system/stats/summary");
       setSummary(summaryData);
+
+      try {
+        const { data: intelligenceData } = await api.get("/ctrl/system/intelligence/overview");
+        setIntelligence(intelligenceData);
+      } catch (err: any) {
+        if (err?.response?.status !== 404) {
+          console.error("Failed to fetch intelligence overview", err);
+        }
+        setIntelligence(null);
+      }
     } catch (err) {
       console.error("Failed to fetch stats", err);
+      setStats([]);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
@@ -92,14 +105,14 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
+        <div className="min-w-0 bg-slate-900 border border-slate-800 rounded-3xl p-8">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-bold text-white">Daily Acquisition Yield</h2>
             <button className="text-indigo-400 text-sm font-medium flex items-center gap-1 hover:text-indigo-300">
               Full Report <ArrowUpRight size={14} />
             </button>
           </div>
-          <div className="h-72">
+          <div className="h-72 min-w-0">
             {loading ? (
               <div className="h-full flex items-center justify-center">
                 <Loader2 className="animate-spin text-slate-800" size={32} />
@@ -110,14 +123,14 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
+        <div className="min-w-0 bg-slate-900 border border-slate-800 rounded-3xl p-8">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-bold text-white">Moderation Throughput</h2>
             <div className="px-3 py-1 bg-indigo-500/10 text-indigo-400 text-[10px] font-bold rounded-full uppercase tracking-widest">
               Live Feed
             </div>
           </div>
-          <div className="h-72">
+          <div className="h-72 min-w-0">
             {loading ? (
               <div className="h-full flex items-center justify-center">
                 <Loader2 className="animate-spin text-slate-800" size={32} />
@@ -128,6 +141,57 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
+          <h2 className="text-xl font-bold text-white mb-6">Turn Intelligence Signals</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <MiniMetric label="Analysed turns" value={intelligence?.analysis_count ?? "..."} />
+            <MiniMetric label="Correction rate" value={intelligence ? `${(intelligence.correction_rate * 100).toFixed(1)}%` : "..."} />
+            <MiniMetric label="Casual chat rate" value={intelligence ? `${(intelligence.casual_chat_rate * 100).toFixed(1)}%` : "..."} />
+            <MiniMetric label="Low-signal rate" value={intelligence ? `${(intelligence.low_signal_rate * 100).toFixed(1)}%` : "..."} />
+          </div>
+          <div className="mt-6 text-sm text-slate-400 space-y-2">
+            {intelligence?.recent_turns?.slice(0, 4).map((turn: any, index: number) => (
+              <div key={`${turn.transcript}-${index}`} className="border border-slate-800 rounded-xl p-3">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>{turn.intent_label}</span>
+                  <span>{(turn.intent_confidence * 100).toFixed(0)}%</span>
+                </div>
+                <p className="text-slate-200 mt-2 line-clamp-2">{turn.transcript}</p>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  keyterms: {turn.applied_keyterms?.join(", ") || "none"} | {turn.usable_for_learning ? "usable" : "blocked"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
+          <h2 className="text-xl font-bold text-white mb-6">Recent Entity Samples</h2>
+          <div className="space-y-3 text-sm">
+            {intelligence?.entity_samples?.slice(0, 8).map((entity: any, index: number) => (
+              <div key={`${entity.normalized_text}-${index}`} className="border border-slate-800 rounded-xl p-3">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>{entity.entity_type}</span>
+                  <span>{((entity.confidence || 0) * 100).toFixed(0)}%</span>
+                </div>
+                <p className="text-slate-200 mt-2">{entity.normalized_text}</p>
+                <p className="text-[11px] text-slate-500 mt-1">{entity.language || "unknown"}</p>
+              </div>
+            )) || <p className="text-slate-500">No entity samples yet.</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
+      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
+      <p className="text-xl font-bold text-white mt-2">{value}</p>
     </div>
   );
 }

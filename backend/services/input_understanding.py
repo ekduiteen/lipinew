@@ -12,6 +12,9 @@ from services.turn_interpreter import TurnInterpretation
 @dataclass(frozen=True)
 class InputUnderstanding:
     turn_id: str
+    intent_label: str
+    intent_confidence: float
+    secondary_intents: list[str]
     primary_language: str
     secondary_languages: list[str]
     code_switch_ratio: float
@@ -30,6 +33,9 @@ class InputUnderstanding:
     transcript_confidence: float
     learning_allowed: bool
     conversation_allowed: bool
+    usable_for_learning: bool
+    unusable_reason: str | None
+    learning_weight: float
     signal_confidences: dict[str, float]
 
     def to_dict(self) -> dict:
@@ -43,7 +49,7 @@ def _fallback_audio_signals(
     secondary_languages: list[str] = []
     code_switch_ratio = 0.0
     if hearing.mode == "mixed":
-        secondary_languages = ["en"] if hearing.language != "en" else ["ne"]
+        secondary_languages = ["en"]
         code_switch_ratio = 0.35
     elif hearing.mode == "english":
         secondary_languages = []
@@ -114,16 +120,24 @@ def merge_signals(
     hearing: HearingResult,
     interpretation: TurnInterpretation,
     audio_signals: AudioUnderstandingResult,
+    intent_label: str | None = None,
+    intent_confidence: float | None = None,
+    secondary_intents: list[str] | None = None,
+    usable_for_learning: bool | None = None,
+    unusable_reason: str | None = None,
+    learning_weight: float | None = None,
     memory_context: dict | None = None,
 ) -> InputUnderstanding:
     """Merge Whisper/hearing, turn interpretation, and optional audio-sidecar signals."""
 
     del memory_context
 
-    is_correction = bool(audio_signals.is_correction or interpretation.is_correction)
+    normalized_intent = str(intent_label or "").strip().lower()
+    is_correction = bool(audio_signals.is_correction or interpretation.is_correction or normalized_intent == "correction")
     is_teaching = bool(
         audio_signals.is_teaching
         or interpretation.intent_type in {"teach_word", "give_example", "regional_variation"}
+        or normalized_intent in {"teaching", "example", "pronunciation_guidance", "register_instruction", "code_switch_explanation"}
     )
     primary_lang = audio_signals.primary_language or hearing.language or "ne"
     topic = (
@@ -139,6 +153,9 @@ def merge_signals(
 
     return InputUnderstanding(
         turn_id=turn_id,
+        intent_label=intent_label or interpretation.intent_type,
+        intent_confidence=float(intent_confidence or max(audio_signals.model_confidence, hearing.confidence)),
+        secondary_intents=list(secondary_intents or []),
         primary_language=primary_lang,
         secondary_languages=audio_signals.secondary_languages or [],
         code_switch_ratio=float(audio_signals.code_switch_ratio or 0.0),
@@ -157,6 +174,9 @@ def merge_signals(
         transcript_confidence=float(hearing.confidence),
         learning_allowed=hearing.learning_allowed,
         conversation_allowed=hearing.conversation_allowed,
+        usable_for_learning=hearing.learning_allowed if usable_for_learning is None else usable_for_learning,
+        unusable_reason=unusable_reason,
+        learning_weight=float(learning_weight or (0.75 if hearing.learning_allowed else 0.25)),
         signal_confidences=signal_confidences,
     )
 

@@ -21,6 +21,15 @@ def _build_client() -> Minio:
     )
 
 
+async def check_bucket_health() -> bool:
+    """Return True if the audio bucket is reachable. Used by health check endpoints."""
+    try:
+        client = _build_client()
+        return await asyncio.to_thread(client.bucket_exists, settings.minio_bucket_audio)
+    except Exception:
+        return False
+
+
 def _put_object(object_name: str, payload: bytes) -> None:
     client = _build_client()
     client.put_object(

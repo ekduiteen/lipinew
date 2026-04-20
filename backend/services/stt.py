@@ -15,10 +15,20 @@ from config import settings
 logger = logging.getLogger("lipi.backend.stt")
 
 
-async def _local_transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict:
+async def _local_transcribe(
+    audio_bytes: bytes,
+    http: httpx.AsyncClient,
+    *,
+    prompt: str | None = None,
+    language_hint: str | None = None,
+) -> dict:
     resp = await http.post(
         f"{settings.ml_service_url}/stt",
         files={"audio": ("audio.webm", audio_bytes, "audio/webm")},
+        data={
+            "prompt": prompt or "",
+            "language_hint": language_hint or "",
+        },
         timeout=settings.ml_timeout,
     )
     resp.raise_for_status()
@@ -31,7 +41,12 @@ async def _local_transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict
     wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
     reraise=True,
 )
-async def _groq_transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict:
+async def _groq_transcribe(
+    audio_bytes: bytes,
+    http: httpx.AsyncClient,
+    *,
+    prompt: str | None = None,
+) -> dict:
     """Groq Whisper fallback."""
     if not settings.groq_api_key:
         raise RuntimeError("Groq API key not configured — no STT fallback")
@@ -42,7 +57,11 @@ async def _groq_transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict:
         "https://api.groq.com/openai/v1/audio/transcriptions",
         headers={"Authorization": f"Bearer {settings.groq_api_key}"},
         files={"file": ("audio.webm", audio_bytes, "audio/webm")},
-        data={"model": "whisper-large-v3", "response_format": "verbose_json"},
+        data={
+            "model": "whisper-large-v3",
+            "response_format": "verbose_json",
+            "prompt": prompt or "",
+        },
         timeout=20.0,
     )
     resp.raise_for_status()
@@ -55,13 +74,19 @@ async def _groq_transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict:
     }
 
 
-async def transcribe(audio_bytes: bytes, http: httpx.AsyncClient) -> dict:
+async def transcribe(
+    audio_bytes: bytes,
+    http: httpx.AsyncClient,
+    *,
+    prompt: str | None = None,
+    language_hint: str | None = None,
+) -> dict:
     """Transcribe audio. Returns {text, language, confidence, duration_ms}."""
     try:
-        return await _local_transcribe(audio_bytes, http)
+        return await _local_transcribe(audio_bytes, http, prompt=prompt, language_hint=language_hint)
     except Exception as exc:
         if not settings.groq_api_key:
             logger.error("Local STT error with no Groq fallback configured: %s", exc)
             raise
         logger.warning("Local STT error (%s), activating Groq fallback", exc)
-        return await _groq_transcribe(audio_bytes, http)
+        return await _groq_transcribe(audio_bytes, http, prompt=prompt)

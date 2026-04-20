@@ -177,13 +177,16 @@ async def record_teacher_signals(
     source: str = "input_understanding_v1",
 ) -> None:
     signal_specs = [
+        ("intent", "intent_label", understanding.intent_label, understanding.intent_confidence),
         ("language", "primary_language", understanding.primary_language, 0.85),
         ("language", "secondary_languages", understanding.secondary_languages, 0.65),
+        ("language", "code_switch_ratio", {"value": understanding.code_switch_ratio}, 0.65),
         ("style", "register_estimate", understanding.register_estimate, 0.7),
         ("style", "tone", understanding.tone, 0.7),
         ("style", "speech_rate", understanding.speech_rate, 0.55),
         ("style", "pronunciation_style", understanding.pronunciation_style, 0.55),
         ("style", "prosody_pattern", understanding.prosody_pattern, 0.5),
+        ("quality", "usable_for_learning", understanding.usable_for_learning, 0.8),
     ]
     if understanding.dialect_guess:
         signal_specs.append(
@@ -191,6 +194,7 @@ async def record_teacher_signals(
         )
 
     for signal_type, signal_key, value, confidence in signal_specs:
+        stored_value = value if isinstance(value, dict) else {"value": value}
         signal = TeacherSignal(
             id=str(uuid.uuid4()),
             teacher_id=teacher_id,
@@ -198,7 +202,7 @@ async def record_teacher_signals(
             message_id=message_id,
             signal_type=signal_type,
             signal_key=signal_key,
-            signal_value_json={"value": value},
+            signal_value_json=stored_value,
             confidence=max(0.0, min(float(confidence), 1.0)),
             source=source,
         )

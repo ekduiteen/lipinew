@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
-import asyncio
+import uuid
 from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cache import valkey
@@ -14,17 +16,46 @@ from db.connection import get_db
 from dependencies.admin_auth import get_current_admin
 from models.admin_control import AdminAccount, AdminAuditLog
 from models.dataset_gold import GoldRecord
-from models.intelligence import ReviewQueueItem
+from models.intelligence import AdminKeytermSeed, ReviewQueueItem
 from models.message import Message
+from models.session import TeachingSession
 from services.admin_moderation import claim_expiry_cutoff
-from services.audio_storage import _build_client
+from services.audio_storage import check_bucket_health
 
 router = APIRouter(prefix="/api/ctrl/system", tags=["control-system"])
+
+
+class KeytermSeedCreate(BaseModel):
+    seed_text: str = Field(..., min_length=1, max_length=500)
+    language_key: str = Field("ne", max_length=20)
+    entity_type: str = Field("vocabulary", pattern=r"^(vocabulary|proper_name|phrase|honorific_or_register_term|language_name|pronunciation_target|cultural_concept|corrected_term)$")
+    domain_key: str | None = None
+    weight: float = Field(1.0, ge=0.0, le=10.0)
+    source_note: str | None = Field(None, max_length=500)
+    is_active: bool = True
 
 
 def _today_start() -> datetime:
     now = datetime.now(timezone.utc)
     return datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
+
+
+async def _table_exists(db: AsyncSession, table_name: str) -> bool:
+    return bool(
+        await db.scalar(
+            text("SELECT to_regclass(:table_name) IS NOT NULL"),
+            {"table_name": f"public.{table_name}"},
+        )
+    )
+
+
+async def _safe_count(db: AsyncSession, table_name: str, stmt) -> int:
+    if not await _table_exists(db, table_name):
+        return 0
+    try:
+        return int(await db.scalar(stmt) or 0)
+    except ProgrammingError:
+        return 0
 
 
 async def _compute_real_metrics(db: AsyncSession) -> dict:
@@ -73,7 +104,11 @@ async def _compute_real_metrics(db: AsyncSession) -> dict:
         )
         or 0
     )
-    gold_records_created = int(await db.scalar(select(func.count()).select_from(GoldRecord)) or 0)
+    gold_records_created = await _safe_count(
+        db,
+        "dataset_gold_records",
+        select(func.count()).select_from(GoldRecord),
+    )
 
     review_items = (
         await db.execute(
@@ -111,14 +146,7 @@ async def _compute_real_metrics(db: AsyncSession) -> dict:
 
 
 async def _check_minio_health() -> bool:
-    try:
-        client = _build_client()
-        return await asyncio.to_thread(
-            client.bucket_exists,
-            settings.minio_bucket_audio,
-        )
-    except Exception:
-        return False
+    return await check_bucket_health()
 
 
 @router.get("/health")
@@ -126,7 +154,11 @@ async def get_system_health(
     admin: AdminAccount = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    gold_count = int(await db.scalar(select(func.count()).select_from(GoldRecord)) or 0)
+    gold_count = await _safe_count(
+        db,
+        "dataset_gold_records",
+        select(func.count()).select_from(GoldRecord),
+    )
     raw_count = int(await db.scalar(select(func.count()).select_from(Message)) or 0)
 
     valkey_ok = False
@@ -225,8 +257,6 @@ async def get_stats_timeseries(
     if cached_val:
         return json.loads(cached_val)
 
-    from models.session import TeachingSession
-
     gold_stmt = (
         select(
             func.date_trunc("day", GoldRecord.created_at).label("day"),
@@ -250,11 +280,15 @@ async def get_stats_timeseries(
         raw_stmt = raw_stmt.where(TeachingSession.register_used == register)
     raw_stmt = raw_stmt.group_by("day").order_by("day").limit(days)
 
-    gold_res = await db.execute(gold_stmt)
+    if await _table_exists(db, "dataset_gold_records"):
+        gold_res = await db.execute(gold_stmt)
+        gold_rows = gold_res.all()
+    else:
+        gold_rows = []
     raw_res = await db.execute(raw_stmt)
 
     data_map: dict[str, dict] = {}
-    for day, count in gold_res.all():
+    for day, count in gold_rows:
         d_str = day.strftime("%Y-%m-%d")
         data_map[d_str] = {"date": d_str, "gold": count, "raw": 0}
     for day, count in raw_res.all():
@@ -267,3 +301,154 @@ async def get_stats_timeseries(
     final_data = sorted(data_map.values(), key=lambda row: row["date"])
     await valkey.setex(cache_key, 900, json.dumps(final_data))
     return final_data
+
+
+@router.get("/keyterm-seeds")
+async def list_keyterm_seeds(
+    language: str | None = None,
+    active_only: bool = True,
+    admin: AdminAccount = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(AdminKeytermSeed).order_by(AdminKeytermSeed.weight.desc(), AdminKeytermSeed.created_at.desc())
+    if language:
+        stmt = stmt.where(AdminKeytermSeed.language_key == language)
+    if active_only:
+        stmt = stmt.where(AdminKeytermSeed.is_active.is_(True))
+    rows = (await db.execute(stmt.limit(200))).scalars().all()
+    return {
+        "seeds": [
+            {
+                "id": row.id,
+                "language_key": row.language_key,
+                "seed_text": row.seed_text,
+                "normalized_text": row.normalized_text,
+                "entity_type": row.entity_type,
+                "domain_key": row.domain_key,
+                "weight": row.weight,
+                "source_note": row.source_note,
+                "is_active": row.is_active,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.post("/keyterm-seeds")
+async def create_keyterm_seed(
+    payload: KeytermSeedCreate,
+    admin: AdminAccount = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    seed_text = payload.seed_text.strip()
+    normalized = " ".join(seed_text.lower().split())
+    row = AdminKeytermSeed(
+        id=str(uuid.uuid4()),
+        language_key=payload.language_key,
+        seed_text=seed_text,
+        normalized_text=normalized,
+        entity_type=payload.entity_type,
+        domain_key=payload.domain_key,
+        weight=payload.weight,
+        source_note=payload.source_note,
+        is_active=payload.is_active,
+        created_by=admin.id,
+    )
+    db.add(row)
+    db.add(
+        AdminAuditLog(
+            admin_id=admin.id,
+            action="create_keyterm_seed",
+            entity_type="AdminKeytermSeed",
+            entity_id=row.id,
+            details={
+                "seed_text": seed_text,
+                "language_key": row.language_key,
+                "entity_type": row.entity_type,
+            },
+        )
+    )
+    await db.commit()
+    return {"status": "ok", "id": row.id}
+
+
+@router.get("/intelligence/overview")
+async def get_turn_intelligence_overview(
+    admin: AdminAccount = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if await _table_exists(db, "message_analysis"):
+        overview = await db.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) AS analysis_count,
+                    SUM(CASE WHEN intent_label = 'correction' THEN 1 ELSE 0 END) AS correction_count,
+                    SUM(CASE WHEN intent_label = 'casual_chat' THEN 1 ELSE 0 END) AS casual_count,
+                    SUM(CASE WHEN intent_label = 'low_signal' THEN 1 ELSE 0 END) AS low_signal_count
+                FROM message_analysis
+                """
+            )
+        )
+        row = overview.one()
+        recent_rows = await db.execute(
+            text(
+                """
+                SELECT transcript_final, intent_label, intent_confidence, primary_language, keyterms_json, quality_json
+                FROM message_analysis
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            )
+        )
+    else:
+        row = type("Row", (), {
+            "analysis_count": 0,
+            "correction_count": 0,
+            "casual_count": 0,
+            "low_signal_count": 0,
+        })()
+        recent_rows = []
+
+    if await _table_exists(db, "message_entities"):
+        entity_rows = await db.execute(
+            text(
+                """
+                SELECT language, entity_type, normalized_text, confidence
+                FROM message_entities
+                ORDER BY created_at DESC
+                LIMIT 250
+                """
+            )
+        )
+        entity_payload = entity_rows.mappings().all()
+    else:
+        entity_payload = []
+
+    gold_count = await _safe_count(
+        db,
+        "dataset_gold_records",
+        select(func.count()).select_from(GoldRecord),
+    )
+    raw_count = int(await db.scalar(select(func.count()).select_from(Message)) or 0)
+    recent_turn_rows = recent_rows.mappings().all() if hasattr(recent_rows, "mappings") else []
+    return {
+        "analysis_count": int(row.analysis_count or 0),
+        "correction_rate": round(int(row.correction_count or 0) / max(int(row.analysis_count or 0), 1), 3),
+        "casual_chat_rate": round(int(row.casual_count or 0) / max(int(row.analysis_count or 0), 1), 3),
+        "low_signal_rate": round(int(row.low_signal_count or 0) / max(int(row.analysis_count or 0), 1), 3),
+        "gold_records_created": gold_count,
+        "raw_messages": raw_count,
+        "entity_samples": entity_payload[:20],
+        "recent_turns": [
+            {
+                "transcript": item.transcript_final,
+                "intent_label": item.intent_label,
+                "intent_confidence": float(item.intent_confidence or 0.0),
+                "primary_language": item.primary_language,
+                "applied_keyterms": list((item.keyterms_json or {}).get("applied", [])),
+                "usable_for_learning": bool((item.quality_json or {}).get("usable_for_learning", False)),
+            }
+            for item in recent_turn_rows
+        ],
+    }

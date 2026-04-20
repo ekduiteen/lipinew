@@ -18,27 +18,14 @@ async function request<T>(
 ): Promise<T> {
   const auth = init?.skipAuth ? {} : authHeader();
   const headers = { "Content-Type": "application/json", ...auth, ...init?.headers };
-  console.log("API request:", path, { headers, ...init });
 
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      ...init,
-      headers,
-    });
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText);
-      console.error("API error response:", res.status, text);
-      throw new Error(`HTTP ${res.status}: ${text}`);
-    }
-    const data = await res.json() as T;
-    console.log("API response:", path, data);
-    return data;
-  } catch (error: any) {
-    console.error("API request failed:", error);
-    console.error("Full error details:", error.message, error.stack);
-    throw error;
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${text}`);
   }
+  return res.json() as Promise<T>;
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -177,6 +164,28 @@ export interface QualityReport {
   recent_hindi_mixed_replies: number;
 }
 
+export interface TurnIntelligenceSample {
+  transcript: string;
+  intent_label: string;
+  intent_confidence: number;
+  primary_language: string | null;
+  usable_for_learning: boolean;
+  applied_keyterms: string[];
+  entities: Array<Record<string, unknown>>;
+}
+
+export interface TurnIntelligenceReport {
+  intent_distribution: Record<string, number>;
+  top_entities_by_language: Record<string, Array<{ text: string; count: number }>>;
+  correction_rate: number;
+  casual_chat_rate: number;
+  low_signal_rate: number;
+  keyterm_hit_quality: Record<string, number>;
+  top_uncertain_words: Array<{ text: string; count: number }>;
+  per_language_extraction_quality: Record<string, number>;
+  recent_turns: TurnIntelligenceSample[];
+}
+
 export interface RecentSample {
   teacher_text: string;
   teacher_language: string | null;
@@ -195,6 +204,7 @@ export interface DashboardOverview {
   data: DataSummary;
   quality: QualityReport;
   recent_samples: RecentSample[];
+  turn_intelligence: TurnIntelligenceReport;
 }
 
 export async function getDashboardOverview(): Promise<DashboardOverview> {

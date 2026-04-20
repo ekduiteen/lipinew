@@ -73,7 +73,7 @@ def choose_behavior_policy(
         curiosity_level -= 0.1
     curiosity_level = max(0.35, min(curiosity_level, 0.95))
 
-    if not understanding.conversation_allowed:
+    if not understanding.conversation_allowed or understanding.intent_label == "low_signal":
         confirmation_style = "ask_repeat"
         infer_vs_ask = "ask"
     elif understanding.transcript_confidence < 0.74:
@@ -82,6 +82,12 @@ def choose_behavior_policy(
     elif understanding.is_correction:
         confirmation_style = "correction_accept"
         infer_vs_ask = "infer"
+    elif understanding.intent_label == "register_instruction":
+        confirmation_style = "light_ack"
+        infer_vs_ask = "infer"
+    elif understanding.intent_label == "pronunciation_guidance":
+        confirmation_style = "repair"
+        infer_vs_ask = "ask"
     else:
         confirmation_style = "light_ack"
         infer_vs_ask = "infer"
@@ -103,11 +109,15 @@ def choose_behavior_policy(
     else:
         politeness_level = "low"
 
-    tone_style = understanding.tone
+    tone_style = understanding.tone or "neutral"
     if understanding.is_correction:
         tone_style = "respectful_accepting"
     elif understanding.is_teaching:
         tone_style = "curious_warm"
+    elif understanding.intent_label == "register_instruction":
+        tone_style = "respectful_adjusting"
+    elif understanding.intent_label == "pronunciation_guidance":
+        tone_style = "careful_listening"
 
     dialect_alignment = understanding.dialect_guess or teacher_model.dialect_signature_hook or "neutral"
 

@@ -1,7 +1,7 @@
 # LIPI — Developer Onboarding Guide
 
 > **Living document. Update rule: every PR that adds a service, endpoint, pattern, or architectural decision MUST include a corresponding update to this file. No exceptions. If you shipped it and didn't document it here, it didn't happen.**
-> Last synced: 2026-04-16 — Multi-engine brain live; hybrid audio-understanding sidecar added; Phrase Lab structured capture lane added; async speaker-embedding path implemented with ML `/speaker-embed` + backend learning worker storage.
+> Last synced: 2026-04-18 — Turn intelligence layer live; per-turn intent recognition, entity extraction, keyterm boosting, transcript repair, dashboard visibility, and async learning enrichment all wired into the teach loop.
 
 > **Docs rule:** this file, `README.md`, `OPERATIONS.md`, `CLAUDE.md`, `DATABASE_SCHEMA.md`, `PHASE_ROADMAP.md`, and `HANDOVER_TO_CODEX.md` are the canonical docs. Do not add another status/quickstart/handover summary file unless there is a genuinely new audience and no existing canonical doc fits.
 
@@ -99,6 +99,11 @@ lipi/
 │       ├── hearing.py          ← STT quality gate, language mode detection
 │       ├── turn_interpreter.py ← Intent, correction, topic inference
 │       ├── input_understanding.py ← Merge STT + semantics + audio signals
+│       ├── keyterm_service.py  ← Session/history/admin keyterm preparation (NEW)
+│       ├── transcript_repair.py ← Keyterm-aware transcript repair (NEW)
+│       ├── intent_classifier.py ← Structured turn intent recognition (NEW)
+│       ├── entity_extractor.py ← Structured message entity extraction (NEW)
+│       ├── turn_intelligence.py ← Unified turn analysis + persistence (NEW)
 │       ├── audio_understanding.py ← Acoustic/prosody sidecar (graceful fallback)
 │       ├── teacher_modeling.py ← Teacher credibility, style, expertise
 │       ├── memory_service.py   ← Structured session memory snapshots
@@ -322,75 +327,89 @@ If `:3000` responds but the app still does not load data, check `:8000` first. A
   │
   ├─ 0. get_ws_user(token) → user_id              JWT auth on connect
   │
-  ├─ 1. stt_svc.transcribe(audio_bytes)           OBSERVE
+  ├─ 1. keyterm_service.prepare_turn_keyterms()   KEYTERM PREP
+  │     └─ session memory + teacher history + admin seeds + uncertain words
+  │
+  ├─ 2. stt_svc.transcribe(audio_bytes)           OBSERVE
   │     └─ POST ml:5001/stt  → {text, language, confidence, duration_ms}
+  │           prompt hint + language hint sent when available
   │           fallback: Groq Whisper API
   │
-  ├─ 2. hearing_svc.analyze_hearing()             HEARING ENGINE
+  ├─ 3. transcript_repair.repair_transcript()    TRANSCRIPT REPAIR
+  │     └─ cautious keyterm-based repair for low-confidence STT
+  │
+  ├─ 4. hearing_svc.analyze_hearing()             HEARING ENGINE
   │     └─ quality gate, language mode, learning_allowed
   │
-  ├─ 3. audio_understanding.extract_audio_signals() AUDIO SIDECAR
+  ├─ 5. turn_intelligence.analyze_turn()          TURN INTELLIGENCE
+  │     └─ intent + entities + code-switch + keyterms + usability
+  │
+  ├─ 6. audio_understanding.extract_audio_signals() AUDIO SIDECAR
   │     └─ POST ml:5001/audio-understand → {dialect, tone, prosody}
   │
-  ├─ 4. turn_interpreter.interpret_turn()         TURN INTERPRETER
-  │     └─ intent, correction, topic, taught terms, style hints
+  ├─ 7. turn_interpreter.interpret_turn()         TURN INTERPRETER
+  │     └─ legacy semantic hints used alongside turn intelligence
   │
-  ├─ 5. input_understanding.merge_signals()       INPUT UNDERSTANDING
-  │     └─ safely merges transcript (Whisper), Semantics (LLM), and Audio signals (Gemma Audio)
+  ├─ 8. input_understanding.merge_signals()       INPUT UNDERSTANDING
+  │     └─ merges transcript, semantics, audio signals, intent, and usability
   │
-  ├─ 5. memory_service + teacher_modeling         INTELLIGENCE STATE
+  ├─ 9. memory_service + teacher_modeling         INTELLIGENCE STATE
   │     ├─ load structured session memory
   │     ├─ build teacher model
-  │     └─ load correction summary
+  │     └─ load correction summary / approved rules
   │
-  ├─ 6. behavior_policy.choose_behavior_policy()  BEHAVIOR POLICY
+  ├─ 10. behavior_policy.choose_behavior_policy()  BEHAVIOR POLICY
   │
-  ├─ 7. Register switch detection (e.g. "तिमी भनेर बोल")
-  │     → rebuild system prompt if register changed
+  ├─ 11. Live turn-intelligence adjustments
+  │     ├─ register_instruction can rebuild prompt immediately
+  │     ├─ pronunciation_guidance can alter follow-up behavior
+  │     └─ low_signal can trigger clarification instead of false learning
   │
-  ├─ 8. Topic memory + curriculum/diversity planning
+  ├─ 12. Topic memory + curriculum/diversity planning
   │     ├─ build per-turn language/topic guidance
-  │     └─ inject active language, recent topics, taught words
+  │     └─ inject active language, recent topics, taught words, approved rules
   │
-  ├─ 9. personality.build_response_plan()         PERSONALITY ENGINE
+  ├─ 13. personality.build_response_plan()         PERSONALITY ENGINE
   │
-  ├─ 10. response_orchestrator.build_response_package()
+  ├─ 14. response_orchestrator.build_response_package()
+  │     └─ turn guidance includes intent, learning weight, keyterms, repair metadata
   │
-  ├─ 11. llm_svc.generate()
+  ├─ 15. llm_svc.generate()
   │     └─ POST :8100/v1/chat/completions (Gemma OpenAI-compatible shim)
   │           fallback: Groq llama-3.3-70b
   │     → send JSON {"type":"token","text":"..."} frame to client
   │
-  ├─ 12. response_cleanup.finalize_reply()        DELIVERY FILTER
+  ├─ 16. response_cleanup.finalize_reply()        DELIVERY FILTER
   │
-  ├─ 13. post_generation_guard.guard_response()   SAFETY / QUALITY FILTER
+  ├─ 17. post_generation_guard.guard_response()   SAFETY / QUALITY FILTER
   │
-  ├─ 15. Persist both turns to DB                 STORE
+  ├─ 18. Persist both turns to DB                 STORE
   │     └─ message_store.persist_teacher_turn()
   │     └─ message_store.persist_lipi_turn()
+  │     └─ turn_intelligence.persist_turn_intelligence()
   │     └─ correction_graph.record_correction_event() → **ReviewQueueItem generated**
   │     └─ teacher turn gets raw / derived / high-value signal JSONB envelopes
   │
-  ├─ 16. memory_service.update_session_memory()
+  ├─ 19. memory_service.update_session_memory()
   │     └─ teacher_modeling.apply_teacher_turn_outcome()
   │
-  ├─ 16. topic_memory.update_session_memory()
+  ├─ 20. topic_memory.update_session_memory()
   │
-  ├─ 17. learning_svc.enqueue_turn()
+  ├─ 21. learning_svc.enqueue_turn()
   │     ├─ PUSH: save extraction job to Valkey pending queue
   │     ├─ WORKER: backend lifespan task moves job → processing queue
-  │     ├─ PROCESS: LLM extracts vocabulary JSON from teacher utterance
-  │     ├─ EXTRACT: parse {word, language, definition_en}
+  │     ├─ ENRICH: turn_intelligence.enrich_with_llm()
+  │     ├─ EXTRACT: authoritative entities + keyterms + code-switch metadata
   │     └─ STORE: upsert vocabulary_entries + vocabulary_teachers + usage_rules
   │               log word_learned (5pts) + pioneer_word (25pts) if first ever
   │        ← durable + retryable, never blocks the WS response
   │
-  ├─ 18. tts_svc.synthesize(lipi_text)
+  ├─ 22. tts_svc.synthesize(lipi_text)
   │     └─ POST ml:5001/tts  → WAV bytes
   │           language-aware routing: English and Nepali can use different voice ids
   │           fallback: empty audio / silence path (never stall the WS)
   │
-  └─ 19. Send {"type":"tts_start"} → WAV binary → {"type":"tts_end"}
+  └─ 23. Send {"type":"tts_start"} → WAV binary → {"type":"tts_end"}
 
 [Browser]
   ├─ Queues WAV frames → Web Audio API playback
@@ -411,6 +430,23 @@ Groq key set?    ──yes──► Groq API (fallback)
 ```
 
 Same pattern for STT. TTS never raises — returns silence on failure.
+
+### 6.1 Turn Intelligence Contract
+
+Every teacher turn now produces a normalized `turn_intelligence` object with:
+- `intent`: primary label, confidence, and secondary labels
+- `entities`: typed structured spans such as vocabulary, phrase, honorific/register term, language name, corrected term, gloss, and example usage
+- `keyterms`: applied candidates plus source buckets from session memory, teacher history, admin seeds, and uncertain-word tracking
+- `code_switch`: primary/secondary language and spans
+- `quality`: `usable_for_learning`, reason if not, and learning weight
+- transcript repair metadata
+
+This object is:
+- computed cheaply in the live WS path
+- persisted to `message_analysis` and `message_entities`
+- embedded in training-capture envelopes
+- re-enriched by the async learning worker before authoritative persistence
+- surfaced in `/api/dashboard/overview` and `/api/ctrl/system/intelligence/overview`
 
 ---
 

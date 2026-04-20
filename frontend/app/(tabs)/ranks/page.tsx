@@ -6,10 +6,17 @@ import { getLeaderboard, type LeaderboardEntry } from "@/lib/api";
 type Period = "weekly" | "monthly" | "all_time";
 
 const PERIODS: { id: Period; ne: string; en: string }[] = [
-  { id: "weekly",   ne: "साप्ताहिक", en: "Weekly" },
-  { id: "monthly",  ne: "मासिक",    en: "Monthly" },
+  { id: "weekly",   ne: "साप्ताहिक", en: "Week" },
+  { id: "monthly",  ne: "मासिक",    en: "Month" },
   { id: "all_time", ne: "सबै",      en: "All time" },
 ];
+
+const MONO: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: "0.65rem",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+};
 
 export default function RanksPage() {
   const [period, setPeriod]   = useState<Period>("weekly");
@@ -24,81 +31,182 @@ export default function RanksPage() {
       .finally(() => setLoading(false));
   }, [period]);
 
-  return (
-    <div className="page" style={{ padding: "var(--space-8) var(--space-6) var(--space-6)", gap: "var(--space-6)" }}>
+  const top3 = entries.slice(0, 3);
+  const rest  = entries.slice(3);
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-        <h1 style={{ fontFamily: "var(--font-nepali)", fontSize: "var(--text-h1)", fontWeight: 700, color: "var(--fg)" }}>
-          शीर्ष शिक्षकहरू
-        </h1>
-        <p style={{ fontFamily: "var(--font-latin)", fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
-          Top Teachers
-        </p>
+  return (
+    <div style={{
+      minHeight: "100svh",
+      background: "var(--bg)",
+      padding: "60px 20px 120px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 0,
+      overflowY: "auto",
+    }}>
+
+      {/* Header */}
+      <div>
+        <span style={{ ...MONO, color: "var(--fg-muted)" }}>⁄ 005 · RANKS</span>
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontFamily: "var(--font-nepali)", fontSize: "var(--text-h2)", fontWeight: 600, color: "var(--fg)" }}>
+            शीर्ष शिक्षकहरू
+          </div>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: "var(--text-body)", color: "var(--fg-muted)", fontStyle: "italic" }}>
+            Top Teachers
+          </div>
+        </div>
       </div>
 
       {/* Period tabs */}
-      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+      <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
         {PERIODS.map((p) => (
           <button
             key={p.id}
-            className="btn-secondary"
+            onClick={() => setPeriod(p.id)}
             style={{
               flex: 1,
-              padding: "var(--space-3) var(--space-2)",
+              padding: "10px 4px",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              gap: "2px",
-              borderColor: period === p.id ? "var(--accent)" : undefined,
-              color: period === p.id ? "var(--accent)" : undefined,
+              gap: 3,
+              background: period === p.id ? "var(--bg-card)" : "transparent",
+              border: period === p.id ? "1.5px solid var(--accent)" : "1.5px solid var(--rule)",
+              borderRadius: 12,
+              cursor: "pointer",
+              transition: "all var(--duration-micro) var(--ease)",
             }}
-            onClick={() => setPeriod(p.id)}
           >
-            <span style={{ fontFamily: "var(--font-nepali)" }}>{p.ne}</span>
-            <span style={{ fontFamily: "var(--font-latin)", fontSize: "0.65rem", opacity: 0.7 }}>{p.en}</span>
+            <span style={{ fontFamily: "var(--font-nepali-ui)", fontSize: 13, color: period === p.id ? "var(--fg)" : "var(--fg-muted)", fontWeight: period === p.id ? 600 : 400 }}>
+              {p.ne}
+            </span>
+            <span style={{ ...MONO, color: "var(--fg-subtle)", letterSpacing: "0.06em" }}>{p.en}</span>
           </button>
         ))}
       </div>
 
-      {/* List */}
       {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-8)" }}>
+        <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
           <div className="spinner" />
         </div>
       ) : (
-        <ol style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-          {entries.map((e) => (
-            <li
-              key={e.rank}
-              className="card"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-4)",
-                padding: "var(--space-4) var(--space-5)",
-                borderColor: e.rank <= 3 ? "color-mix(in srgb, var(--accent) 40%, var(--border))" : undefined,
-              }}
-            >
-              <span style={{ width: "2rem", textAlign: "center", fontWeight: 700, color: "var(--accent)", fontSize: "1.1rem" }}>
-                {e.rank <= 3 ? ["🥇", "🥈", "🥉"][e.rank - 1] : e.rank}
-              </span>
-              <span
+        <>
+          {/* Podium — top 3 */}
+          {top3.length > 0 && (
+            <div style={{ marginTop: 28, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 8, height: 180 }}>
+              {[top3[1], top3[0], top3[2]].filter(Boolean).map((e, col) => {
+                const heights   = [140, 176, 120];
+                const isGold    = col === 1;
+                return (
+                  <div
+                    key={e.rank}
+                    style={{
+                      flex: 1,
+                      height: heights[col],
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                      background: isGold ? "var(--tint-butter)" : "var(--bg-card)",
+                      border: `1px solid ${isGold ? "var(--rule)" : "var(--rule-soft)"}`,
+                      borderRadius: "14px 14px 0 0",
+                      padding: "10px 6px",
+                      position: "relative",
+                    }}
+                  >
+                    <div style={{
+                      position: "absolute",
+                      top: -20,
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      background: "var(--tint-lavender)",
+                      border: `1.5px solid ${isGold ? "var(--accent)" : "var(--rule)"}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontFamily: "var(--font-serif)",
+                      fontSize: 14,
+                      color: "var(--fg)",
+                    }}>
+                      {e.avatar_initial}
+                    </div>
+                    <span style={{ ...MONO, color: "var(--fg-subtle)" }}>
+                      {String(e.rank).padStart(2, "0")}
+                    </span>
+                    <span style={{
+                      fontFamily: "var(--font-sans)",
+                      fontSize: 11,
+                      color: "var(--fg)",
+                      fontWeight: 500,
+                      marginTop: 2,
+                      textAlign: "center",
+                      lineHeight: 1.2,
+                    }}>
+                      {e.name.split(" ")[0]}
+                    </span>
+                    <span style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      color: "var(--fg-muted)",
+                      marginTop: 2,
+                    }}>
+                      {e.points.toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Full list */}
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+            {[...top3, ...rest].map((e, i) => (
+              <div
+                key={e.rank}
                 style={{
-                  width: "2.25rem", height: "2.25rem", borderRadius: "50%", flexShrink: 0,
-                  background: "color-mix(in srgb, var(--accent) 20%, var(--bg-elev))",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "1rem", fontWeight: 700, color: "var(--accent)",
+                  display: "grid",
+                  gridTemplateColumns: "32px 1fr auto",
+                  gap: 12,
+                  alignItems: "center",
+                  padding: "12px 14px",
+                  borderRadius: 14,
+                  background: i < 3 ? "var(--bg-card)" : "transparent",
+                  border: i < 3 ? "1px solid var(--rule-soft)" : "1px solid transparent",
+                  boxShadow: i < 3 ? "var(--shadow-subtle)" : "none",
                 }}
               >
-                {e.avatar_initial}
-              </span>
-              <span style={{ flex: 1, color: "var(--fg)", fontSize: "var(--text-sm)" }}>{e.name}</span>
-              <span style={{ color: "var(--fg-muted)", fontSize: "var(--text-sm)", fontFamily: "var(--font-latin)" }}>
-                {e.points.toLocaleString()} pts
-              </span>
-            </li>
-          ))}
-        </ol>
+                <span style={{ ...MONO, color: "var(--fg-subtle)", textAlign: "center" }}>
+                  {String(e.rank).padStart(2, "0")}
+                </span>
+                <span style={{ fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--fg)" }}>
+                  {e.name}
+                </span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--fg-muted)", fontWeight: 500 }}>
+                  {e.points.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Weekly prize card */}
+          <div style={{
+            marginTop: 20,
+            padding: "18px 20px",
+            background: "var(--tint-lavender)",
+            borderRadius: 18,
+            border: "1px solid var(--rule-soft)",
+          }}>
+            <span style={{ ...MONO, color: "var(--fg-muted)" }}>⁄ WEEKLY PRIZE</span>
+            <div style={{ marginTop: 8, fontFamily: "var(--font-serif)", fontSize: 20, color: "var(--fg)", letterSpacing: "-0.01em" }}>
+              Top 3 teachers earn LIPI Credit
+            </div>
+            <div style={{ marginTop: 4, fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--fg-muted)", fontStyle: "italic" }}>
+              Resets every Sunday at midnight (NST)
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

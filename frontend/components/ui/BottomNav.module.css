@@ -7,7 +7,7 @@
   background: var(--bg-frost);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--rule);
   display: flex;
   z-index: 50;
   padding-bottom: env(safe-area-inset-bottom, 0);
@@ -24,19 +24,19 @@
   color: var(--fg-subtle);
   transition: color var(--duration-micro) ease;
   position: relative;
-  padding: 8px 0;
+  padding: 8px 2px;
 }
 
 .tab::after {
   content: '';
   position: absolute;
   bottom: 8px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
+  width: 16px;
+  height: 2px;
+  border-radius: var(--radius-full);
   background: var(--accent);
   opacity: 0;
-  transition: opacity var(--duration-micro) ease;
+  transition: opacity var(--duration-micro) ease, width var(--duration-micro) ease;
 }
 
 .tab.active {
@@ -52,7 +52,7 @@
 }
 
 .icon {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   line-height: 1;
   transition: transform var(--duration-micro) ease;
 }
@@ -62,8 +62,8 @@
 }
 
 .labelNe {
-  font-size: 0.68rem;
-  font-family: var(--font-nepali);
+  font-size: 0.65rem;
+  font-family: var(--font-nepali-ui);
   font-weight: 500;
   line-height: 1;
 }
