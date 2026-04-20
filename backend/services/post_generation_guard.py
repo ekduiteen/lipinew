@@ -83,6 +83,46 @@ def _fallback_safe_response(hearing: HearingResult, policy: BehaviorPolicy) -> s
     return "ठिक छ। यो एकचोटि सजिलोसँग भन्न सक्छौ?"
 
 
+def _rewrite_from_policy(hearing: HearingResult, policy: BehaviorPolicy) -> str:
+    family = policy.prompt_family
+    if policy.response_language == "en" or hearing.mode == "english":
+        mapping = {
+            "ask_target_language": f"Ohh okay… how would you say that in {policy.teach_language.upper()}?",
+            "ask_natural_way": "Ohh okay… what's the natural way to say that?",
+            "confirm_meaning": "Ohh okay… so that means what you said there, right?",
+            "ask_example": "Ohh okay. Can you give one simple example?",
+            "ask_register_variant": "Ohh okay. Is there a more casual way to say it too?",
+            "ask_local_variant": "Ohh okay. Is there a more local way to say that?",
+            "ask_simple_rephrase": "Wait, can you say the same thing in easier words?",
+            "ask_full_sentence": "Wait, can you say it once as a full sentence?",
+        }
+        return mapping.get(family, "Ohh okay… what's the natural way to say that?")
+    if hearing.mode == "mixed":
+        mapping = {
+            "ask_target_language": f"ओह ठीक छ… यो {policy.teach_language.upper()} मा कसरी भन्छन्?",
+            "ask_natural_way": "ओह ठीक छ… natural तरिकाले कसरी भन्छन्?",
+            "confirm_meaning": "ओह ठीक छ… भनेपछि त्यसको मतलब यही हो, है?",
+            "ask_example": "ओह ठीक छ। एउटा सजिलो example दिन सक्छौ?",
+            "ask_register_variant": "ओह ठीक छ। अलि casual तरिकाले पनि भन्छन्?",
+            "ask_local_variant": "ओह ठीक छ। अलि local तरिकाले पनि भन्छन्?",
+            "ask_simple_rephrase": "ओह ठीक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?",
+            "ask_full_sentence": "wait, यो एकपटक पुरा वाक्यमा भन्न सक्छौ?",
+        }
+        return mapping.get(family, "ओह ठीक छ… natural तरिकाले कसरी भन्छन्?")
+
+    mapping = {
+        "ask_target_language": f"ओह ठीक छ… यो {policy.teach_language.upper()} मा कसरी भन्छन्?",
+        "ask_natural_way": "ओह ठीक छ… स्वाभाविक रूपमा कसरी भन्छन्?",
+        "confirm_meaning": "ओह ठीक छ… भनेपछि त्यसको मतलब यही हो, है?",
+        "ask_example": "ओह ठीक छ। एउटा सजिलो उदाहरण दिन सक्छौ?",
+        "ask_register_variant": "ओह ठीक छ। अलि casual तरिकाले पनि भन्छन्?",
+        "ask_local_variant": "ओह ठीक छ। अलि स्थानीय तरिकाले पनि भन्छन्?",
+        "ask_simple_rephrase": "ओह ठीक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?",
+        "ask_full_sentence": "पर्ख… यो एकपटक पुरा वाक्यमा भन्न सक्छौ?",
+    }
+    return mapping.get(family, "ओह ठीक छ… स्वाभाविक रूपमा कसरी भन्छन्?")
+
+
 def guard_response(
     text: str,
     *,
@@ -121,10 +161,7 @@ def guard_response(
 
     hard_rewrite_reasons = {"weak_student_behavior", "language_purity_risk", "politeness_mismatch"}
     if any(reason in reasons for reason in hard_rewrite_reasons):
-        if policy.response_language == "en":
-            rewritten = "Got it. What would be the natural way to say that?"
-        else:
-            rewritten = "ठिक छ। यसलाई स्वाभाविक रूपमा कसरी भन्छन्?"
+        rewritten = _rewrite_from_policy(hearing, policy)
         return GuardResult(action="rewrite", text=rewritten, reasons=reasons)
 
     if "generic_followup" in reasons:

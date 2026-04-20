@@ -237,6 +237,49 @@ async def demo_login(db: AsyncSession = Depends(get_db), request = None) -> Toke
     )
 
 
+@limiter.limit("3/minute")  # Stricter limit for demo admin login
+@router.post("/demo-admin")
+async def demo_admin_login(db: AsyncSession = Depends(get_db), request = None):
+    """
+    Dev-only demo admin login for frontend-control dashboard.
+    Creates or retrieves a seeded admin and returns an admin JWT with ctrl scope.
+    Returns 403 in any non-development environment.
+    """
+    if settings.environment != "development":
+        raise HTTPException(status_code=403, detail="Demo admin login is only available in development")
+
+    from models.admin_control import AdminAccount
+
+    _DEMO_ADMIN_ID = "a0000000-0000-0000-0000-000000000001"
+
+    admin = await db.get(AdminAccount, _DEMO_ADMIN_ID)
+    if admin is None:
+        admin = AdminAccount(
+            id=_DEMO_ADMIN_ID,
+            email="demo-admin@lipi.local",
+            full_name="Demo Admin",
+            role="super_admin",
+            is_active=True,
+        )
+        db.add(admin)
+        await db.flush()
+
+    await db.commit()
+
+    # Create admin token with ctrl scope
+    from jwt_utils import create_admin_token
+    token = create_admin_token(_DEMO_ADMIN_ID, scope="super_admin")
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": settings.jwt_expire_minutes * 60,
+        "admin_id": _DEMO_ADMIN_ID,
+        "role": "super_admin",
+        "full_name": "Demo Admin",
+    }
+
+
 @limiter.limit("10/minute")  # Token refresh, can be called more frequently
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(

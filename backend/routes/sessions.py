@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import replace
@@ -76,6 +77,153 @@ _MSG_HISTORY_KEY = "session:{session_id}:messages"
 _PROFILE_KEY = "user:{user_id}:tone_profile"
 _MAX_CONTEXT_TURNS = 20
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _normalize_reply_for_repeat_check(text: str) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _last_assistant_replies(message_history: list[dict], limit: int = 4) -> list[str]:
+    replies: list[str] = []
+    for message in reversed(message_history):
+        if message.get("role") != "assistant":
+            continue
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        replies.append(content)
+        if len(replies) >= limit:
+            break
+    return replies
+
+
+def _build_repeat_breaker_reply(
+    hearing: hearing_svc.HearingResult,
+    teacher_text: str,
+    recent_assistant_replies: list[str],
+) -> str:
+    teacher_words = len((teacher_text or "").split())
+    if hearing.mode == "english":
+        candidates = (
+            [
+                "Okay. Can you say it once as a full sentence?",
+                "Okay. Can you give one simple example?",
+                "Okay. Can you say the same idea in easier words?",
+            ]
+            if teacher_words <= 4
+            else [
+                "Okay. Can you give one simple example?",
+                "Okay. Can you say the same idea in easier words?",
+                "Okay. Can you say it once as a full sentence?",
+            ]
+        )
+    elif hearing.mode == "mixed":
+        candidates = (
+            [
+                "ठिक छ। यो एकपटक पुरा वाक्यमा भन्न सक्छौ?",
+                "ठिक छ। एउटा सजिलो उदाहरण दिन सक्छौ?",
+                "ठिक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?",
+            ]
+            if teacher_words <= 4
+            else [
+                "ठिक छ। एउटा सजिलो उदाहरण दिन सक्छौ?",
+                "ठिक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?",
+                "ठिक छ। यो एकपटक पुरा वाक्यमा भन्न सक्छौ?",
+            ]
+        )
+    else:
+        candidates = (
+            [
+                "ठिक छ। यो एकपटक पुरा वाक्यमा भन्न सक्छौ?",
+                "ठिक छ। एउटा सजिलो उदाहरण दिन सक्छौ?",
+                "ठिक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?",
+            ]
+            if teacher_words <= 4
+            else [
+                "ठिक छ। एउटा सजिलो उदाहरण दिन सक्छौ?",
+                "ठिक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?",
+                "ठिक छ। यो एकपटक पुरा वाक्यमा भन्न सक्छौ?",
+            ]
+        )
+
+    recent_normalized = {
+        _normalize_reply_for_repeat_check(reply) for reply in recent_assistant_replies
+    }
+    for candidate in candidates:
+        if _normalize_reply_for_repeat_check(candidate) not in recent_normalized:
+            return candidate
+    return candidates[0]
+
+
+def _build_policy_reply(
+    hearing: hearing_svc.HearingResult,
+    behavior_policy: behavior_policy_svc.BehaviorPolicy,
+    teacher_text: str,
+) -> str:
+    prompt_family = behavior_policy.prompt_family
+    teach_language = behavior_policy.teach_language.upper() if behavior_policy.teach_language != "new" else "Newari"
+
+    if hearing.mode == "english":
+        if behavior_policy.turn_goal == "ACCEPT_AND_MOVE":
+            if prompt_family == "ask_register_variant":
+                return "Ohh okay. Is there a more casual way to say it too?"
+            if prompt_family == "ask_example":
+                return "Ohh okay. Can you use it in one simple example?"
+            return "Ohh okay. So that means this is the better way, right?"
+        if prompt_family == "ask_full_sentence":
+            return "Wait, can you say it once as a full sentence?"
+        if prompt_family == "ask_example":
+            return "Ohh okay. Can you give one simple example?"
+        if prompt_family == "ask_simple_rephrase":
+            return "Wait, can you say the same thing in easier words?"
+        if prompt_family == "ask_local_variant":
+            return "Ohh okay. Is there a more local way to say that?"
+        if prompt_family == "ask_target_language":
+            return f"Ohh okay… how would you say that in {teach_language}?"
+        if prompt_family == "confirm_meaning":
+            return "Ohh okay… so that means what you said there, right?"
+        return "Ohh okay… what's the natural way to say that?"
+
+    if hearing.mode == "mixed":
+        if behavior_policy.turn_goal == "ACCEPT_AND_MOVE":
+            if prompt_family == "ask_register_variant":
+                return "ओह ठीक छ। अलि casual तरिकाले पनि भन्छन्?"
+            if prompt_family == "ask_example":
+                return "ओह ठीक छ। एउटा सजिलो example दिन सक्छौ?"
+            return "ओह ठीक छ। भनेपछि यही राम्रो तरिका हो, है?"
+        if prompt_family == "ask_full_sentence":
+            return "wait, यो एकपटक पुरा वाक्यमा भन्न सक्छौ?"
+        if prompt_family == "ask_example":
+            return "ओह ठीक छ। एउटा सजिलो example दिन सक्छौ?"
+        if prompt_family == "ask_simple_rephrase":
+            return "ओह ठीक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?"
+        if prompt_family == "ask_local_variant":
+            return "ओह ठीक छ। अलि local तरिकाले पनि भन्छन्?"
+        if prompt_family == "ask_target_language":
+            return f"ओह ठीक छ… यो {teach_language} मा कसरी भन्छन्?"
+        if prompt_family == "confirm_meaning":
+            return "ओह ठीक छ… भनेपछि त्यसको मतलब यही हो, है?"
+        return "ओह ठीक छ… natural तरिकाले कसरी भन्छन्?"
+
+    if behavior_policy.turn_goal == "ACCEPT_AND_MOVE":
+        if prompt_family == "ask_register_variant":
+            return "ओह ठीक छ। अलि casual तरिकाले पनि भन्छन्?"
+        if prompt_family == "ask_example":
+            return "ओह ठीक छ। एउटा सजिलो उदाहरण दिन सक्छौ?"
+        return "ओह ठीक छ। भनेपछि यही राम्रो तरिका हो, है?"
+    if prompt_family == "ask_full_sentence":
+        return "पर्ख… यो एकपटक पुरा वाक्यमा भन्न सक्छौ?"
+    if prompt_family == "ask_example":
+        return "ओह ठीक छ। एउटा सजिलो उदाहरण दिन सक्छौ?"
+    if prompt_family == "ask_simple_rephrase":
+        return "ओह ठीक छ। यही कुरा अझ सजिलो शब्दमा भन्न सक्छौ?"
+    if prompt_family == "ask_local_variant":
+        return "ओह ठीक छ। अलि स्थानीय तरिकाले पनि भन्छन्?"
+    if prompt_family == "ask_target_language":
+        return f"ओह ठीक छ… यो {teach_language} मा कसरी भन्छन्?"
+    if prompt_family == "confirm_meaning":
+        return "ओह ठीक छ… भनेपछि त्यसको मतलब यही हो, है?"
+    return "ओह ठीक छ… स्वाभाविक रूपमा कसरी भन्छन्?"
 
 async def _load_message_history(session_id: str) -> list[dict]:
     raw = await cache.valkey.get(_MSG_HISTORY_KEY.format(session_id=session_id))
@@ -262,7 +410,23 @@ async def conversation_ws(
         approved_rules=approved_rules,
     )
 
-    system_prompt = build_system_prompt(profile) + cross_session_prompt_context
+    # Determine if teach mode is enabled (check early for system prompt)
+    disable_teach_behaviors = os.getenv("LIPI_DISABLE_TEACH_BEHAVIORS", "").lower() == "true"
+    teach_mode_enabled = not disable_teach_behaviors
+
+    # Build system prompt based on mode
+    if teach_mode_enabled:
+        system_prompt = build_system_prompt(profile) + cross_session_prompt_context
+    else:
+        # Regular LLM mode: simple, non-teaching system prompt
+        system_prompt = (
+            "You are a warm, helpful, and friendly conversational AI. "
+            "Engage naturally with the user on any topic they bring up. "
+            "Be concise, genuine, and interested in what they say. "
+            "Ask follow-up questions when it helps the conversation flow. "
+            "Don't have hidden agendas or try to extract information—just be a good conversational partner."
+        )
+
     message_history: list[dict] = await _load_message_history(session_id)
     user: User | None = None
     curriculum_profile: UserCurriculumProfile | None = None
@@ -372,8 +536,9 @@ async def conversation_ws(
             new_register = _detect_register_switch(teacher_text, profile.register)
             if new_register and new_register != profile.register:
                 profile.register = new_register
-                system_prompt = build_system_prompt(profile) + cross_session_prompt_context
-                message_history[0] = {"role": "system", "content": system_prompt}
+                if teach_mode_enabled:
+                    system_prompt = build_system_prompt(profile) + cross_session_prompt_context
+                    message_history[0] = {"role": "system", "content": system_prompt}
                 logger.info("Register switched to %s", new_register)
 
             # ── 3.5 Audio Understanding Sidecar ───────────────────────────
@@ -405,8 +570,9 @@ async def conversation_ws(
                 )
                 if requested_register in {"hajur", "tapai", "timi", "ta"} and requested_register != profile.register:
                     profile.register = requested_register
-                    system_prompt = build_system_prompt(profile) + cross_session_prompt_context
-                    message_history[0] = {"role": "system", "content": system_prompt}
+                    if teach_mode_enabled:
+                        system_prompt = build_system_prompt(profile) + cross_session_prompt_context
+                        message_history[0] = {"role": "system", "content": system_prompt}
                     logger.info("Register adjusted from turn intelligence to %s", requested_register)
             understanding = input_understanding_svc.merge_signals(
                 turn_id=str(uuid.uuid4()),
@@ -507,11 +673,17 @@ async def conversation_ws(
                 plan,
                 memory,
             )
+            recent_assistant_replies = _last_assistant_replies(message_history, limit=4)
+            if not teach_mode_enabled and turn_index == 2:
+                logger.info("⚠️  TEACH MODE DISABLED — Running in regular LLM mode (testing)")
             behavior_policy = behavior_policy_svc.choose_behavior_policy(
                 teacher_model=teacher_model,
                 session_memory=structured_memory,
                 correction_count_recent=correction_summary.recent_count,
                 understanding=understanding,
+                target_language=profile.native_language,
+                recent_assistant_replies=recent_assistant_replies,
+                teach_mode_enabled=teach_mode_enabled,
             )
             routing_hooks = routing_hooks_svc.build_routing_hooks(
                 teacher_model=teacher_model,
@@ -528,8 +700,8 @@ async def conversation_ws(
                 )
             )
             llm_ms = 0
-            if clarification_only:
-                lipi_text = personality_svc.build_clarification_reply(hearing)
+            if clarification_only and teach_mode_enabled:
+                lipi_text = _build_policy_reply(hearing, behavior_policy, teacher_text)
             elif interpretation.intent_type == "invite_lipi_choice":
                 lipi_text = personality_svc.build_direct_choice_reply(
                     hearing,
@@ -558,6 +730,17 @@ async def conversation_ws(
                     f"- TTS voice profile: {routing_hooks.tts_voice_profile or 'none'}\n"
                     f"- Response ranker: {routing_hooks.response_ranker or 'none'}\n"
                 )
+
+                # In regular LLM mode, use simple guidance without teach-specific instructions
+                if not teach_mode_enabled:
+                    turn_guidance = (
+                        "You are a helpful, friendly conversational AI assistant. "
+                        "Have natural conversations on any topic the user brings up. "
+                        "Be concise, warm, and engage naturally with what they say. "
+                        "Ask questions when appropriate, but don't force it. "
+                        "No structured learning goals or language extraction—just be a good conversational partner."
+                    )
+
                 message_history.append({"role": "system", "content": turn_guidance})
                 message_history.append({"role": "user", "content": teacher_text})
                 llm_t0 = time.monotonic()
@@ -579,13 +762,28 @@ async def conversation_ws(
                     message_history.pop()
                     message_history.pop()
                     message_history.append({"role": "user", "content": teacher_text})
-            guard_result = post_generation_guard_svc.guard_response(
-                lipi_text,
-                hearing=hearing,
-                understanding=understanding,
-                policy=behavior_policy,
-            )
-            lipi_text = response_cleanup_svc.finalize_reply(guard_result.text, hearing)
+            # In regular LLM mode, skip teach-mode-specific guards
+            if teach_mode_enabled:
+                guard_result = post_generation_guard_svc.guard_response(
+                    lipi_text,
+                    hearing=hearing,
+                    understanding=understanding,
+                    policy=behavior_policy,
+                )
+                lipi_text = response_cleanup_svc.finalize_reply(guard_result.text, hearing)
+                normalized_reply = _normalize_reply_for_repeat_check(lipi_text)
+                if normalized_reply and any(
+                    normalized_reply == _normalize_reply_for_repeat_check(previous)
+                    for previous in recent_assistant_replies
+                ):
+                    lipi_text = _build_repeat_breaker_reply(
+                        hearing,
+                        teacher_text,
+                        recent_assistant_replies,
+                    )
+            else:
+                # Regular LLM mode: minimal cleanup only
+                lipi_text = response_cleanup_svc.finalize_reply(lipi_text, hearing)
             if lipi_text:
                 await websocket.send_json({"type": "token", "text": lipi_text})
             message_history.append({"role": "assistant", "content": lipi_text})

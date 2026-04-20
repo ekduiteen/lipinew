@@ -20,6 +20,8 @@ from services.hearing import HearingResult
 
 _PAREN_RE = re.compile(r"\([^)]*\)")
 _MULTISPACE_RE = re.compile(r"\s+")
+_TURN_MARKER_RE = re.compile(r"<[^>]+>")
+_LEAKED_ROLE_PREFIX_RE = re.compile(r"^(?:user|assistant|model)\s*[:：-]?\s*", re.IGNORECASE)
 
 # ── TTS format-noise patterns ─────────────────────────────────────────────────
 _MARKDOWN_RE = re.compile(r"[*_~`#>|\\]")
@@ -69,10 +71,12 @@ _LEARNER_META_PATTERNS = (
 
 def finalize_reply(text: str, hearing: HearingResult) -> str:
     cleaned = _PAREN_RE.sub(" ", text)
+    cleaned = _TURN_MARKER_RE.sub(" ", cleaned)
     for marker in _GENERIC_FILLER_PATTERNS:
         cleaned = cleaned.replace(marker, " ")
     cleaned = cleaned.replace("\r", " ").replace("\n", " ")
     cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
+    cleaned = _LEAKED_ROLE_PREFIX_RE.sub("", cleaned)
     cleaned = _REPEATED_WORD_RE.sub(r"\1", cleaned)
     cleaned = _REPEATED_DEVANAGARI_RE.sub(r"\1", cleaned)
 

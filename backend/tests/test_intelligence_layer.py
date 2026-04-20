@@ -122,12 +122,15 @@ class TestBehaviorPolicy:
             session_memory=memory,
             correction_count_recent=1,
             understanding=understanding,
+            target_language="Newari",
+            recent_assistant_replies=["How would you say that naturally?"],
         )
 
         assert policy.infer_vs_ask == "ask"
         assert policy.max_followups == 1
         assert policy.confirmation_style in {"repair", "inference_first"}
         assert policy.politeness_level == "high"
+        assert policy.turn_goal in {"ELICIT_TARGET", "CLARIFY_MEANING"}
 
 
 class TestSessionMemory:
@@ -176,7 +179,21 @@ class TestPostGenerationGuard:
         interpretation = interpret_turn(hearing, {})
         understanding = input_understanding_svc.analyze_input(hearing, interpretation)
         policy = behavior_policy_svc.BehaviorPolicy(
+            conversation_language="en",
+            teach_language="new",
             response_language="en",
+            target_language_present=False,
+            reply_mode="teach",
+            steer_to_target_language=True,
+            steering_strength="soft",
+            turn_goal="ELICIT_TARGET",
+            prompt_family="ask_natural_way",
+            elicitation_goal="phrase",
+            confirmation_goal="none",
+            should_expand=False,
+            should_ask_followup=True,
+            handle_unclear_expression=False,
+            unclear_expression_strategy="defer",
             mirror_code_switching=False,
             register="tapai",
             tone_style="curious_warm",
@@ -205,7 +222,21 @@ class TestPostGenerationGuard:
         interpretation = interpret_turn(hearing, {})
         understanding = input_understanding_svc.analyze_input(hearing, interpretation)
         policy = behavior_policy_svc.BehaviorPolicy(
+            conversation_language="en",
+            teach_language="new",
             response_language="ne",
+            target_language_present=True,
+            reply_mode="student",
+            steer_to_target_language=False,
+            steering_strength="none",
+            turn_goal="CONFIRM_AND_EXPAND",
+            prompt_family="confirm_meaning",
+            elicitation_goal="none",
+            confirmation_goal="meaning_check",
+            should_expand=True,
+            should_ask_followup=True,
+            handle_unclear_expression=False,
+            unclear_expression_strategy="defer",
             mirror_code_switching=False,
             register="tapai",
             tone_style="curious_warm",
@@ -254,7 +285,21 @@ class TestTrainingCapture:
         interpretation = interpret_turn(hearing, {"user_style": "formal"})
         understanding = input_understanding_svc.analyze_input(hearing, interpretation)
         policy = behavior_policy_svc.BehaviorPolicy(
+            conversation_language="mixed",
+            teach_language="new",
             response_language="ne",
+            target_language_present=True,
+            reply_mode="student",
+            steer_to_target_language=False,
+            steering_strength="none",
+            turn_goal="CONFIRM_AND_EXPAND",
+            prompt_family="confirm_meaning",
+            elicitation_goal="none",
+            confirmation_goal="meaning_check",
+            should_expand=True,
+            should_ask_followup=True,
+            handle_unclear_expression=False,
+            unclear_expression_strategy="defer",
             mirror_code_switching=True,
             register="tapai",
             tone_style="curious_warm",
@@ -354,6 +399,8 @@ class TestServiceLevelTurnFlow:
             session_memory=memory,
             correction_count_recent=0,
             understanding=understanding,
+            target_language="Newari",
+            recent_assistant_replies=[],
         )
 
         correction_event = await correction_graph_svc.record_correction_event(

@@ -253,6 +253,9 @@ def test_response_package_includes_approved_rules():
     )
     understanding = InputUnderstanding(
         turn_id="turn-1",
+        intent_label="correction",
+        intent_confidence=0.95,
+        secondary_intents=[],
         primary_language="ne",
         secondary_languages=[],
         code_switch_ratio=0.0,
@@ -271,10 +274,27 @@ def test_response_package_includes_approved_rules():
         transcript_confidence=0.92,
         learning_allowed=True,
         conversation_allowed=True,
+        usable_for_learning=True,
+        unusable_reason=None,
+        learning_weight=0.8,
         signal_confidences={"stt": 0.92},
     )
     behavior_policy = BehaviorPolicy(
+        conversation_language="mixed",
+        teach_language="new",
         response_language="ne",
+        target_language_present=True,
+        reply_mode="student",
+        steer_to_target_language=False,
+        steering_strength="none",
+        turn_goal="ACCEPT_AND_MOVE",
+        prompt_family="confirm_meaning",
+        elicitation_goal="none",
+        confirmation_goal="meaning_check",
+        should_expand=True,
+        should_ask_followup=False,
+        handle_unclear_expression=False,
+        unclear_expression_strategy="defer",
         mirror_code_switching=False,
         register="tapai",
         tone_style="respectful_accepting",
@@ -399,6 +419,10 @@ async def test_low_trust_extraction_flagged_and_confidence_requires_multiple_tea
         user_id=teacher1_id,
         session_id=session1_id,
         stt_confidence=0.96,
+        entity_confidence=0.92,
+        learning_weight=0.8,
+        intent_label="teaching",
+        keyterm_hit=False,
     )
     await learning_svc._upsert_vocabulary(
         db=db_session,
@@ -408,6 +432,10 @@ async def test_low_trust_extraction_flagged_and_confidence_requires_multiple_tea
         user_id=teacher1_id,
         session_id=session1_id,
         stt_confidence=0.96,
+        entity_confidence=0.92,
+        learning_weight=0.8,
+        intent_label="teaching",
+        keyterm_hit=False,
     )
     await learning_svc._upsert_vocabulary(
         db=db_session,
@@ -417,6 +445,10 @@ async def test_low_trust_extraction_flagged_and_confidence_requires_multiple_tea
         user_id=teacher1_id,
         session_id=session1_id,
         stt_confidence=0.96,
+        entity_confidence=0.92,
+        learning_weight=0.8,
+        intent_label="teaching",
+        keyterm_hit=False,
     )
 
     confidence_single_teacher = (
@@ -434,6 +466,10 @@ async def test_low_trust_extraction_flagged_and_confidence_requires_multiple_tea
         user_id=teacher2_id,
         session_id=session2_id,
         stt_confidence=0.96,
+        entity_confidence=0.92,
+        learning_weight=0.8,
+        intent_label="teaching",
+        keyterm_hit=False,
     )
     await db_session.commit()
 

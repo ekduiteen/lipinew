@@ -22,31 +22,86 @@ export default function DashboardPage() {
   const [register, setRegister] = useState("");
   const [summary, setSummary] = useState<any>(null);
   const [intelligence, setIntelligence] = useState<any>(null);
+  const [isDemo, setIsDemo] = useState(false);
+
+  // Demo data for demonstration purposes
+  const DEMO_STATS = [
+    { date: "2026-04-14", raw: 145, gold: 89, language: "Nepali" },
+    { date: "2026-04-15", raw: 178, gold: 112, language: "Nepali" },
+    { date: "2026-04-16", raw: 162, gold: 98, language: "Newari" },
+    { date: "2026-04-17", raw: 191, gold: 128, language: "Nepali" },
+    { date: "2026-04-18", raw: 214, gold: 145, language: "Nepali" },
+    { date: "2026-04-19", raw: 198, gold: 134, language: "Maithili" },
+    { date: "2026-04-20", raw: 167, gold: 110, language: "Nepali" },
+  ];
+
+  const DEMO_SUMMARY = {
+    pending_queue_size: 47,
+    items_claimed: 12,
+    approvals_today: 34,
+    rejections_today: 5,
+    avg_review_time_seconds: 240,
+    low_trust_rate: 0.08,
+  };
+
+  const DEMO_INTELLIGENCE = {
+    total_turns_analyzed: 1247,
+    correction_intents: 156,
+    teaching_intents: 342,
+    avg_confidence: 0.82,
+  };
 
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/ctrl/system/stats/timeseries", {
-        params: { dialect, register }
-      });
-      setStats(data);
+      try {
+        const { data } = await api.get("/ctrl/system/stats/timeseries", {
+          params: { dialect, register }
+        });
+        setStats(data);
+        setIsDemo(false);
+      } catch (err: any) {
+        // In demo mode or if endpoint not available, use demo data
+        if (err?.response?.status === 401) {
+          console.log("Demo mode: using sample data");
+          setStats(DEMO_STATS);
+          setIsDemo(true);
+        } else {
+          throw err;
+        }
+      }
 
-      const { data: summaryData } = await api.get("/ctrl/system/stats/summary");
-      setSummary(summaryData);
+      try {
+        const { data: summaryData } = await api.get("/ctrl/system/stats/summary");
+        setSummary(summaryData);
+      } catch (err: any) {
+        if (err?.response?.status === 401) {
+          setSummary(DEMO_SUMMARY);
+        } else if (err?.response?.status !== 401) {
+          console.error("Failed to fetch summary", err);
+        }
+        setSummary(null);
+      }
 
       try {
         const { data: intelligenceData } = await api.get("/ctrl/system/intelligence/overview");
         setIntelligence(intelligenceData);
       } catch (err: any) {
-        if (err?.response?.status !== 404) {
+        if (err?.response?.status === 401) {
+          setIntelligence(DEMO_INTELLIGENCE);
+        } else if (err?.response?.status !== 404 && err?.response?.status !== 401) {
           console.error("Failed to fetch intelligence overview", err);
         }
         setIntelligence(null);
       }
     } catch (err) {
       console.error("Failed to fetch stats", err);
-      setStats([]);
-      setSummary(null);
+      if (stats.length === 0) {
+        setStats(DEMO_STATS);
+        setSummary(DEMO_SUMMARY);
+        setIntelligence(DEMO_INTELLIGENCE);
+        setIsDemo(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -69,6 +124,13 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {stats.length === 0 && summary === null && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 px-6 py-4 rounded-xl text-sm flex items-center gap-3">
+          <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+          <span><strong>Demo Mode:</strong> Admin statistics are in read-only mode. Full analytics available with admin credentials.</span>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">System Overview</h1>

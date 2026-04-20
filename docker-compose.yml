@@ -85,6 +85,7 @@ services:
       APP_URL: ${APP_URL}
       LOG_LEVEL: ${LOG_LEVEL}
       ENVIRONMENT: ${ENVIRONMENT}
+      LIPI_DISABLE_TEACH_BEHAVIORS: ${LIPI_DISABLE_TEACH_BEHAVIORS:-false}
     networks:
       - lipi-net
     depends_on:

@@ -59,7 +59,7 @@ def _fallback_audio_signals(
     dialect_guess = None
     dialect_confidence = 0.0
     pronunciation_style = "standard_spoken"
-    if "newari" in lowered or "newa" in lowered or "newari" in lowered or "jojolopa" in lowered:
+    if "jojolopa" in lowered:
         dialect_guess = "newari_kathmandu_mix"
         dialect_confidence = 0.72
         pronunciation_style = "newari_leaning"
