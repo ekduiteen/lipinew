@@ -17,7 +17,21 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - ./.env:/app/.env:ro
+    command:
+      [
+        "uvicorn",
+        "main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-exclude",
+        "pytest-cache-files-*",
+        "--reload-exclude",
+        ".pytest_cache/*",
+      ]
     depends_on:
       postgres:
         condition: service_healthy

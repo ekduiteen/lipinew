@@ -1,31 +1,29 @@
-# LIPI SYSTEM STATUS REPORT — 2026-04-18
+# LIPI SYSTEM STATUS REPORT — 2026-04-20
 
 ## Executive Summary
-✅ **SYSTEM OPERATIONAL**
+🟢 **SYSTEM RUNNING**
 
-The recent learning-loop activation work, admin/control hardening, and the new turn-intelligence upgrade are now verified in code and targeted execution.
+The platform is back in a healthy running state locally and remotely.
 
-Verified activation state:
-- approved corrections update persistent knowledge
-- approved corrections become runtime-usable through approved `UsageRule` reload
-- cross-session memory loads from durable snapshots at session start
-- approved prior teachings are injected into prompt guidance
-- low-trust extraction is blocked from direct learning and queued for review
-- single-teacher vocabulary confidence is capped until multi-teacher reinforcement
+What changed on 2026-04-20:
+- local app servers and local Docker services were restarted successfully
+- remote Docker services were restarted successfully
+- remote backend was repaired by rebuilding from current committed source
+- remote compose was corrected to use localhost-published service bindings
+- local and remote DB schemas were reconciled and stamped to Alembic head `f2a3b4c5d6e7`
+- remote model routing was normalized around `127.0.0.1:8210`
 
-Verified control-system state:
-- moderation queue supports claims, expiry, filters, and batch actions
-- moderation metrics are computed from DB state
-- dataset snapshots are auditable and downloadable end-to-end
-- `frontend-control` builds successfully with the current code
-
-Verified turn-intelligence state:
-- teacher turns now persist intent, entities, keyterms, code-switch, repair metadata, and learning usability
-- keyterm boosting is applied before STT and during transcript repair/extraction
-- low-signal turns are downgraded in learning weight instead of being treated as clean evidence
-- dashboard and control analytics expose recent analyzed turns and aggregate quality signals
-
----
+Current runtime state:
+- local frontend on `127.0.0.1:3000`: up
+- local control dashboard on `127.0.0.1:3001`: up
+- local backend on `127.0.0.1:8000`: healthy
+- local tunnel:
+  - `127.0.0.1:5001 -> remote 5001`
+  - `127.0.0.1:8100 -> remote 8210`
+  - `127.0.0.1:9000 -> remote 9000`
+- remote backend on `127.0.0.1:8000`: healthy
+- remote ML on `127.0.0.1:5001`: healthy
+- remote model endpoint on `127.0.0.1:8210`: healthy
 
 ## Verification Matrix
 
@@ -42,119 +40,56 @@ Verified turn-intelligence state:
 | Real metrics endpoint works | ✅ PASS | `test_admin_control.py` |
 | Dataset snapshot download works | ✅ PASS | `test_admin_control.py` |
 | Control frontend production build | ✅ PASS | `npm run build` in `frontend-control` |
+| Local stack startup on 2026-04-20 | ✅ PASS | Frontend, control dashboard, backend, Docker infra running |
+| Remote backend health on 2026-04-20 | ✅ PASS | `{"status":"ok","environment":"development","database":true,"valkey":true,"vllm":true,"ml_service":true}` |
+| Remote ML health on 2026-04-20 | ✅ PASS | `{"status":"ok","cuda_available":true,...}` |
+| Remote model endpoint on 2026-04-20 | ✅ PASS | `curl http://127.0.0.1:8210/v1/models` succeeded |
+| Local and remote Alembic head | ✅ PASS | both `alembic_version.version_num = f2a3b4c5d6e7` |
 
----
+## Runtime / Operations Findings
 
-## Test Execution Status
+### Remote backend root cause
 
-### Targeted backend verification
+The remote backend restart loop was caused by process drift, not an application-only bug:
+- remote `/data/lipi` was an old source snapshot, not a git checkout
+- the remote backend image was behind the repo
+- remote compose had `DATABASE_URL` hardcoded to a stale Postgres container IP
 
-Command:
-```bash
-python -m pytest backend/tests/test_admin_control.py backend/tests/test_learning_activation.py -q
-```
+Fix applied:
+- current committed backend source was synced to remote
+- remote backend image was rebuilt
+- remote compose was corrected so backend uses `127.0.0.1` bindings for Postgres, Valkey, MinIO, and ML
 
-Result:
-- `9 passed`
+### Schema state
 
-Covered:
-- queue claiming exclusivity
-- expired claim release
-- filtered queue listing
-- batch approval
-- real metrics endpoint
-- snapshot download route
-- learning activation paths
+Both DBs were drifted legacy environments and could not be advanced safely by a naive `alembic upgrade head`.
 
-### Control frontend build verification
+Repair outcome:
+- head-era missing tables were created where needed
+- moderation claim columns and indexes were added
+- `admin_keyterm_seeds` bootstrap data was inserted
+- both DBs now report Alembic revision `f2a3b4c5d6e7`
 
-Command:
-```bash
-cd frontend-control
-npm run build
-```
-
-Result:
-- ✅ PASS
-
----
-
-## Control-System Hardening Applied
-
-### Queue safety and throughput
-Files:
-- `backend/models/intelligence.py`
-- `backend/services/admin_moderation.py`
-- `backend/routes/admin_moderation.py`
-- `backend/alembic/versions/e6f7a8b9c0d1_admin_queue_claims_and_metrics.py`
-
-Changes:
-- added `claimed_by` / `claimed_at` to `review_queue_items`
-- added claim expiry and auto-release
-- added filtered queue listing
-- added claim-buffer prefetching support
-- added batch approve / reject / release endpoints
-- added queue indexes for moderation workload
-
-Impact:
-- multiple moderators can review safely without duplicate assignment on the normal path
-
-### Real metrics
-File:
-- `backend/routes/admin_system.py`
-
-Changes:
-- added `/api/ctrl/system/metrics/real`
-- removed placeholder integrity and storage values from control-system responses
-- added DB-derived approval / rejection / claim / low-trust / review-time metrics
-
-Impact:
-- dashboard and export screens now reflect actual system state instead of fake numbers
-
-### Export pipeline
-Files:
-- `backend/services/admin_export.py`
-- `backend/routes/admin_export.py`
-- `frontend-control/src/app/api/proxy-download/[snapshotId]/route.ts`
-
-Changes:
-- snapshot filters now support language, dialect, date range, and confidence threshold
-- snapshot creation now writes audit logs
-- authenticated snapshot download route now streams ZIP artifacts
-- control frontend download button is now live
-
-Impact:
-- data can leave the system through an auditable and working path
-
----
-
-## Frontend Runtime Notes
-
-The control frontend is now build-clean and environment-driven:
-- `frontend-control/next.config.ts` requires `BACKEND_URL` or `NEXT_PUBLIC_API_URL`
-- missing proxy download path is implemented
-- dead staff nav is removed
-- fake health-log and fake stat surfaces are removed or replaced with real values
-
-The main app frontend remains environment-driven:
-- `frontend/lib/backend-url.ts` requires `BACKEND_URL` or `NEXT_PUBLIC_BACKEND_URL`
-
----
+Operational rule from here:
+- future schema changes should go through Alembic only
+- do not mix `init-db.sql`, ORM `create_all`, and Alembic on an existing DB
 
 ## Current Engineering Status
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Backend activation loop | ✅ Verified | Core learning activation paths are now live |
+| Backend activation loop | ✅ Verified | Core learning activation paths are live |
 | Admin control backend | ✅ Verified | Claims, filtering, batching, metrics, export download all added |
-| Control frontend | ✅ Verified | Build passes, dead UI removed, download works |
+| Control frontend | ✅ Verified | Build passes, download path works |
 | Test harness | ✅ Repaired | Activation and control tests execute |
-| Documentation | ✅ Updated | README, handover, status, release note refreshed |
-
----
+| Runtime operations | ✅ Repaired | Remote compose and deploy path now match the real host |
+| Documentation | ✅ Updated | Docs now describe `:8210`, localhost bindings, and the repeatable deploy loop |
 
 ## Bottom Line
 
-The activation work is real, and the admin/control layer has moved from basic moderation to a usable data-operations system.
+The platform is healthy now, but the real lesson is procedural:
+- remote deploys must sync committed source deliberately
+- remote backend must target localhost-published services
+- schema changes need migration discipline
 
-The correction loop is no longer inert, the learning path is no longer gated only by raw STT confidence, and the control layer now supports safe multi-reviewer moderation plus audited dataset export.
+If that process is followed, the current setup is repeatable.

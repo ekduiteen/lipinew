@@ -38,7 +38,7 @@ The main problems are no longer infrastructure problems. They are product-qualit
 
 ### Remote
 - one NVIDIA L40S
-- host-level Gemma server on `:8100`
+- backend-expected model endpoint currently on `127.0.0.1:8210`
 - Docker `backend`, `ml`, `postgres`, `valkey`, `minio`
 
 ### Core runtime
@@ -50,6 +50,13 @@ Current voice direction:
 - keep Nepali voice as `ne_NP-google-medium`
 - route English through a separate English Piper voice
 - do not go back to OmniVoice on the live path
+
+Current ops note as of 2026-04-20:
+- local and remote services are running
+- remote backend and ML are healthy
+- remote backend is configured for `:8210`
+- local hybrid dev keeps `:8100` only as a local tunnel convenience port mapped to remote `:8210`
+- local and remote DBs are reconciled to Alembic head `f2a3b4c5d6e7`
 
 ## Intelligence Layer
 
@@ -157,6 +164,20 @@ Important implementation note:
 - app frontend server routes no longer assume `localhost` or `backend:8000`
 - control frontend no longer hardcodes `localhost`, but it now requires `BACKEND_URL` or `NEXT_PUBLIC_API_URL`
 - set backend URL env vars explicitly for both Next.js apps
+- local backend dev now relies on `docker-compose.dev.yml` overrides that mount `.env` and exclude transient pytest temp directories from Uvicorn reload watching
+- remote backend deploys should sync committed source to `/data/lipi` and rebuild, not assume the remote host is a clean git checkout
+
+## Development And Deploy Discipline
+
+The stable loop is now:
+- develop locally with local backend on `:8000`
+- tunnel only remote ML/model services when needed
+- commit backend changes before remote deploy
+- sync committed source to remote `/data/lipi`
+- rebuild remote backend image
+- verify remote backend `/health`, remote ML `/health`, and remote `:8210/v1/models`
+
+The main ops failure on 2026-04-20 was not product logic. It was source drift plus a stale remote compose `DATABASE_URL` pointing at an old container IP. The backend must use localhost-published services on the remote host.
 
 ## Admin / Data Operations State
 

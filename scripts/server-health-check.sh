@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# =============================================================================
-# LIPI — Server health check
-# Run on the server to diagnose any issues:
-#   bash /opt/lipi/scripts/server-health-check.sh
-# =============================================================================
 
 set -u
-DEPLOY_DIR="/opt/lipi"
-COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.yml"
+DEPLOY_DIR="/data/lipi"
+COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.lipi.yml"
 
 echo "=== LIPI Server Health Check ==="
 echo ""
@@ -70,7 +65,7 @@ _check_http() {
 
 _check_http "http://localhost:8000/health" "Backend (FastAPI)"
 _check_http "http://localhost:5001/health" "ML Service (STT+TTS)"
-_check_http "http://localhost:8080/v1/models" "vLLM (LLM inference)"
+_check_http "http://localhost:8210/v1/models" "Model endpoint"
 echo ""
 
 # ─── Database check ─────────────────────────────────────────────────────────
@@ -150,8 +145,8 @@ echo "[RECENT ERRORS]"
 echo "Backend errors (last 5):"
 $COMPOSE logs backend 2>/dev/null | grep -i error | tail -5 | sed 's/^/  /' || echo "  (none)"
 echo ""
-echo "vLLM errors (last 5):"
-$COMPOSE logs vllm 2>/dev/null | grep -i error | tail -5 | sed 's/^/  /' || echo "  (none)"
+echo "ML errors (last 5):"
+$COMPOSE logs ml 2>/dev/null | grep -i error | tail -5 | sed 's/^/  /' || echo "  (none)"
 echo ""
 
 # ─── Quick connectivity test ────────────────────────────────────────────────

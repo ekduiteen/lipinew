@@ -1,24 +1,32 @@
 # LIPI Operations
 
-Operational reference for the **actual current LIPI runtime**, not the old multi-GPU / Kubernetes plan.
+Operational reference for the actual current LIPI runtime.
 
 ## Current Reality
 
 ### Local
 - `frontend` on `http://127.0.0.1:3000`
 - `backend` on `http://127.0.0.1:8000`
+- `frontend-control` on `http://127.0.0.1:3001`
 - `postgres`, `valkey`, `minio` in Docker
 
 ### Remote
 - one NVIDIA L40S
-- host-level Gemma OpenAI-compatible server on `127.0.0.1:8100`
-- Docker `backend`, `ml`, `postgres`, `valkey`, `minio`
-- live remote compose path: `/data/lipi/docker-compose.lipi.yml`
+- live compose path: `/data/lipi/docker-compose.lipi.yml`
+- remote backend on `127.0.0.1:8000`
+- remote ML on `127.0.0.1:5001`
+- remote model proxy on `127.0.0.1:8210`
+- Docker services: `backend`, `ml`, `postgres`, `valkey`, `minio`
 
-### Model stack
-- **LLM**: Gemma 4
-- **STT**: faster-whisper large-v3
-- **TTS**: Piper
+### Current state snapshot
+- as of `2026-04-20`, local stack is up
+- as of `2026-04-20`, remote stack is up
+- local backend health is `ok`
+- remote backend health is `ok`
+- remote ML health is `ok`
+- remote backend uses `VLLM_URL=http://127.0.0.1:8210`
+- remote `:8100` is not the canonical backend target
+- local and remote DBs were reconciled and stamped to Alembic head `f2a3b4c5d6e7`
 
 ## Canonical Health Checks
 
@@ -26,6 +34,7 @@ Operational reference for the **actual current LIPI runtime**, not the old multi
 ```bash
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:3000
+curl http://127.0.0.1:3001
 docker compose ps
 ```
 
@@ -36,45 +45,41 @@ cd /data/lipi
 docker compose -f docker-compose.lipi.yml ps
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:5001/health
-curl http://127.0.0.1:8100/v1/models
-
-### Admin Stack
-```bash
-# Internal health check (Admin only)
-curl -H "Authorization: Bearer <ADMIN_JWT>" http://127.0.0.1:8000/api/ctrl/system/health
-```
+curl http://127.0.0.1:8210/v1/models
+ss -ltnp | grep -E ':8210|:5001|:8000|:5432|:6379|:9000'
 ```
 
 ## Local Operations
 
 ### Start local stack
 ```bash
-docker compose up -d postgres valkey minio minio-init backend frontend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres valkey minio minio-init backend frontend
+```
+
+### Start local control dashboard
+```bash
+cd frontend-control
+node_modules\.bin\next.cmd dev --port 3001
 ```
 
 ### Restart local services
 ```bash
-docker compose restart backend
-docker compose restart frontend
-docker compose restart postgres
-docker compose restart valkey
-docker compose restart minio
+docker compose -f docker-compose.yml -f docker-compose.dev.yml restart backend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml restart frontend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml restart postgres
+docker compose -f docker-compose.yml -f docker-compose.dev.yml restart valkey
+docker compose -f docker-compose.yml -f docker-compose.dev.yml restart minio
 ```
 
 ### Rebuild local app services
 ```bash
-docker compose up -d --build backend
-docker compose up -d --build frontend
-docker compose up -d --build ml
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build backend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build frontend
 ```
 
-### Local logs
+### Stop local stack
 ```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f postgres
-docker compose logs -f valkey
-docker compose logs -f minio
+docker compose down
 ```
 
 ## Remote Operations
@@ -87,11 +92,11 @@ cd /data/lipi
 
 ### Restart remote Docker services
 ```bash
-docker compose -f docker-compose.lipi.yml restart backend
-docker compose -f docker-compose.lipi.yml restart ml
 docker compose -f docker-compose.lipi.yml restart postgres
 docker compose -f docker-compose.lipi.yml restart valkey
 docker compose -f docker-compose.lipi.yml restart minio
+docker compose -f docker-compose.lipi.yml restart ml
+docker compose -f docker-compose.lipi.yml restart backend
 ```
 
 ### Rebuild remote Docker services
@@ -109,86 +114,104 @@ docker compose -f docker-compose.lipi.yml logs -f valkey
 docker compose -f docker-compose.lipi.yml logs -f minio
 ```
 
-## Host-Level Gemma Service
+## Remote Runtime Constraints
 
-Gemma is not managed by the main remote compose file. It runs as a host-level process on `:8100`.
+The remote host is not a live git checkout. `/data/lipi` is an ops-managed source snapshot.
 
-### Check Gemma
+Treat these as non-negotiable until the deployment model changes:
+- sync committed source to remote deliberately
+- rebuild the remote image after sync
+- do not assume `git pull` on the remote host will work
+- do not point backend `DATABASE_URL` at an ephemeral container IP
+- do not point backend `VLLM_URL` at `:8100` unless the remote model topology is deliberately changed
+
+### Known-good remote compose pattern
+
+The remote backend currently relies on host-mode networking and localhost-published infra bindings:
+- backend `network_mode: host`
+- postgres published on `127.0.0.1:5432`
+- valkey published on `127.0.0.1:6379`
+- minio published on `127.0.0.1:9000` and `:9001`
+- ml published on `127.0.0.1:5001`
+- backend env points to `127.0.0.1`, not container IPs
+
+Critical env values on remote:
 ```bash
-curl http://127.0.0.1:8100/v1/models
+DATABASE_URL=postgresql+asyncpg://lipi:...@127.0.0.1:5432/lipi
+VALKEY_URL=valkey://127.0.0.1:6379/0
+MINIO_ENDPOINT=127.0.0.1:9000
+ML_SERVICE_URL=http://127.0.0.1:5001
+VLLM_URL=http://127.0.0.1:8210
 ```
-
-### If Gemma is down
-Check the custom server process and restart it from the host shell using the current launcher script:
-```bash
-python scripts/gemma_openai_server.py
-```
-
-If you change Gemma model/runtime behavior, update:
-- [scripts/gemma_openai_server.py](scripts/gemma_openai_server.py)
-- [DEV_ONBOARDING.md](DEV_ONBOARDING.md)
 
 ## Tunnel / Hybrid Dev
 
-When running the frontend locally against remote inference/backend services:
+When running a local backend, do not forward remote `:8000` onto local `:8000`.
 
 ```bash
 ssh -N -p 41447 \
-  -L 8000:localhost:8000 \
   -L 5001:localhost:5001 \
-  -L 8100:localhost:8100 \
+  -L 8100:localhost:8210 \
   -L 9000:localhost:9000 \
   ekduiteen@202.51.2.50
 ```
 
 Then verify:
 ```bash
-curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:5001/health
 curl http://127.0.0.1:8100/v1/models
+curl http://127.0.0.1:8000/health
 ```
 
-## Administrative Setup
+## Repeatable Development Loop
 
-### Bootstrapping the first Super Admin
-Since the Control Dashboard is isolated from public signups, you must create the first admin via the CLI:
+Use this while actively building features:
+
+1. Start local Docker infra and local backend/frontend.
+2. Start `frontend-control` locally on `:3001` if needed.
+3. Open the SSH tunnel for remote ML/model only.
+4. Keep local backend on local `:8000`.
+5. Verify local backend plus tunneled remote model health.
+6. If health fails, check local backend logs first, then remote ML/model health.
+
+## Repeatable Remote Deploy Loop
+
+Use this after committed backend or infra changes:
+
+1. Commit the backend changes you intend to deploy.
+2. Sync committed source to remote `/data/lipi`.
+3. Rebuild the remote backend image.
+4. Restart remote backend and any changed services.
+5. Verify backend `/health`, ML `/health`, and `:8210/v1/models`.
+6. If backend fails, inspect remote backend logs before changing code again.
+
+### Recommended sync command
+
+For backend-oriented deploys, sync the committed tree instead of copying an arbitrary dirty worktree:
+
 ```bash
-python backend/scripts/bootstrap_admin.py --email admin@lipi.ai --name "Lead Admin"
+git archive --format=tar HEAD backend ml scripts init-db.sql .env.example | \
+ssh -p 41447 ekduiteen@202.51.2.50 "mkdir -p /data/lipi && tar -xf - -C /data/lipi"
 ```
 
-### Running the Control Dashboard
-1. Ensure the backend is running (`:8000`).
-2. Start the admin frontend:
-```bash
-cd frontend-control
-npm run dev -- -p 3001
-```
-3. Access at `http://localhost:3001`.
+If the remote compose file itself changes, update `/data/lipi/docker-compose.lipi.yml` explicitly as a separate ops step.
 
-## Data Services
+## Schema / Migration Discipline
 
-### Postgres
-```bash
-docker compose exec postgres psql -U lipi -d lipi
-```
+Current legacy reality:
+- these DBs were previously baseline-stamped against drifted schemas
+- `init-db.sql`, ORM `create_all`, and Alembic were mixed historically
+- reconciliation to head `f2a3b4c5d6e7` required manual repair
 
-### Valkey
-```bash
-docker compose exec valkey valkey-cli
-# Monitor analytics cache keys
-valkey-cli KEYS "ctrl:stats:ts:*"
-```
+Development rule going forward:
+- after this point, schema changes should go through Alembic only
+- do not silently rely on `init-db.sql` or ad-hoc `create_all` against an existing DB
+- if a future environment drifts, treat it as a reconciliation task, not a normal upgrade
 
-### Analytics Telemetry
-Monitor the aggregation yield and cache hits via the system health endpoint:
+Verification commands:
 ```bash
-# Check timeseries stats directly (requires Admin JWT)
-curl -H "Authorization: Bearer <ADMIN_JWT>" "http://127.0.0.1:8000/api/ctrl/system/stats/timeseries?days=30"
-```
-
-### MinIO
-```bash
-docker compose logs minio --tail 50
+docker compose exec -T postgres psql -U lipi -d lipi -c "SELECT version_num FROM alembic_version;"
+ssh -p 41447 ekduiteen@202.51.2.50 "cd /data/lipi && docker compose -f docker-compose.lipi.yml exec -T postgres psql -U lipi -d lipi -c 'SELECT version_num FROM alembic_version;'"
 ```
 
 ## Common Checks
@@ -198,28 +221,21 @@ Check:
 1. `curl http://127.0.0.1:8000/health`
 2. `curl http://127.0.0.1:5001/health`
 3. `curl http://127.0.0.1:8100/v1/models`
-4. `docker compose logs backend --tail 80`
+4. `docker compose -f docker-compose.yml -f docker-compose.dev.yml logs backend --tail 80`
 
-### Frontend loads but data does not
-Usually means:
-- local `:3000` is fine
-- backend on `:8000` is not reachable or not the expected service
+### Remote backend restart loop
+Usually one of:
+- stale backend image versus current source
+- remote compose drift
+- backend env pointing to stale container IPs instead of localhost-published services
 
-### TTS feels wrong
 Check:
-- current Piper voice id in `ml/tts.py`
-- whether English/Nepali split routing is actually deployed remotely
-
-### STT is weak on Newari / mixed speech
-This is still a known product limitation, not just an ops issue.
-
-## Current Known Weak Spots
-
-- Newari and mixed-language STT quality
-- voice feel and language-specific TTS quality
-- rigid response delivery despite stronger backend planning
-
-Those are product-quality issues. Don’t mistake them for infra breakage unless health checks fail.
+```bash
+ssh -p 41447 ekduiteen@202.51.2.50
+cd /data/lipi
+docker compose -f docker-compose.lipi.yml ps -a
+docker compose -f docker-compose.lipi.yml logs --tail 200 backend
+```
 
 ## Canonical Docs
 

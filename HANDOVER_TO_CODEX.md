@@ -1,4 +1,4 @@
-# LIPI Handover — April 18, 2026
+# LIPI Handover — April 20, 2026
 
 This is the current engineer handover. Update this file when state changes.
 
@@ -6,46 +6,48 @@ This is the current engineer handover. Update this file when state changes.
 
 | Layer | Status | Notes |
 |-------|--------|-------|
-| Backend | ✅ Healthy | Activation loop verified and testable |
-| Database | ✅ Healthy | Control migration added for queue claims and moderation indexes |
-| Frontend | ✅ Healthy | Backend URL assumptions removed from runtime paths |
-| Control Frontend | ✅ Healthy | Builds successfully and reflects real moderation/export state |
-| WebSocket Teach Loop | ✅ Healthy | Memory + approved-rule read path wired at session start |
-| Turn Intelligence | ✅ Healthy | Intent, entities, keyterms, repair, and dashboard visibility are live |
+| Backend | ✅ Running | Local and remote backend healthy |
+| Database | ✅ Running | Local and remote DB healthy; reconciled to head |
+| Frontend | ✅ Running | Local app serving on `:3000` |
+| Control Frontend | ✅ Running | Local admin dashboard serving on `:3001` |
+| WebSocket Teach Loop | ✅ Healthy | Runtime path verified |
+| Turn Intelligence | ✅ Healthy | Intent, entities, keyterms, repair, dashboard visibility live |
 | Phrase Lab | ✅ Healthy | Primary + variation route wiring present |
 | Heritage | ✅ Healthy | Uses proxied backend routes |
 | Verification Harness | ✅ Improved | Activation and admin-control tests pass |
 
----
-
 ## What Was Just Completed
 
-### Learning activation state
-- approved corrections update persistent knowledge
-- approved correction rules are readable in future sessions
-- cross-session memory loads from durable snapshots
-- approved prior teachings appear in prompt guidance
-- low-trust extractions are diverted to review instead of direct learning
-- single-teacher vocabulary confidence is capped at `0.70` until stronger validation
+### Runtime / ops repair
+- local stack restarted cleanly
+- remote stack restarted cleanly
+- remote backend is healthy on `127.0.0.1:8000`
+- remote ML is healthy on `127.0.0.1:5001`
+- remote model path is healthy through `127.0.0.1:8210`
+- local hybrid tunnel is:
+  - local `5001 -> remote 5001`
+  - local `8100 -> remote 8210`
+  - local `9000 -> remote 9000`
 
-### Turn-intelligence state
-- `backend/services/keyterm_service.py` prepares per-turn candidates from memory, teacher history, admin seeds, and uncertain review items
-- `backend/services/transcript_repair.py` performs cautious low-confidence repair using those candidates
-- `backend/services/turn_intelligence.py` persists canonical turn analysis into `message_analysis` and `message_entities`
-- the live WS path consumes the cheap analysis; the async learning worker can enrich the same turn authoritatively
-- `/api/dashboard/overview` and `/api/ctrl/system/intelligence/overview` expose aggregate intent/entity/keyterm quality signals
+### Remote backend root-cause fix
+- remote `/data/lipi` was not a git checkout; it was a source snapshot
+- remote backend image was rebuilt from current committed backend source
+- remote compose was repaired so backend uses localhost-published infra bindings
+- the real backend blocker was a stale hardcoded Postgres container IP in remote `DATABASE_URL`
+- remote compose now uses `127.0.0.1:5432` for Postgres, not an ephemeral Docker IP
 
-### Admin/control hardening state
-- queue claiming with expiry and auto-release
-- filtered moderation queue by review type, language, confidence, source, and age
-- batch approve / reject / release actions
-- real moderation metrics endpoint
-- audited dataset snapshot creation with richer filters
-- authenticated control-frontend download path
-- moderation UI surfaces review type, source, confidence, teacher credibility, and supporting-teacher signal
-- gold browser surfaces provenance and confidence history
+### Schema reconciliation
+- local and remote schemas were reconciled to match head-era expectations
+- missing head-era tables were created where needed
+- `review_queue_items.claimed_by` and `claimed_at` were added on both DBs
+- indexes and `admin_keyterm_seeds` bootstrap data were added
+- local and remote `alembic_version` now both read `f2a3b4c5d6e7`
 
----
+### Local dev fixes
+- `backend/.dockerignore` excludes transient pytest temp directories that broke Docker builds
+- `docker-compose.dev.yml` mounts repo `.env` into the backend container
+- `docker-compose.dev.yml` excludes transient pytest temp directories from Uvicorn reload watching
+- when running hybrid local dev with a local backend, do not tunnel remote `:8000` onto local `:8000`
 
 ## Current Test State
 
@@ -64,60 +66,35 @@ npm run build
 ```
 
 Result:
-- ✅ PASS
+- pass
 
----
+## Important Operational Truths
 
-## Important Files
+- remote compose path is `/data/lipi/docker-compose.lipi.yml`
+- remote backend target for LLM traffic is `http://127.0.0.1:8210`
+- local tunnel keeps `8100` only as a local convenience port mapped to remote `8210`
+- remote backend depends on localhost-published Postgres, Valkey, MinIO, and ML bindings
+- remote `/data/lipi` should be treated as a synced snapshot, not a live git checkout
 
-### Activation loop
-- `backend/services/admin_moderation.py`
-- `backend/services/correction_graph.py`
-- `backend/services/learning.py`
-- `backend/services/memory_service.py`
-- `backend/services/response_orchestrator.py`
-- `backend/routes/sessions.py`
+## Development / Deploy Rule
 
-### Turn intelligence
-- `backend/services/keyterm_service.py`
-- `backend/services/transcript_repair.py`
-- `backend/services/intent_classifier.py`
-- `backend/services/entity_extractor.py`
-- `backend/services/turn_intelligence.py`
-- `backend/tests/test_turn_intelligence.py`
-- `backend/alembic/versions/f2a3b4c5d6e7_turn_intelligence_layer.py`
+Going forward, the stable loop is:
 
-### Admin / control
-- `backend/routes/admin_moderation.py`
-- `backend/routes/admin_system.py`
-- `backend/routes/admin_export.py`
-- `backend/services/admin_export.py`
-- `backend/models/intelligence.py`
-- `backend/alembic/versions/e6f7a8b9c0d1_admin_queue_claims_and_metrics.py`
-- `backend/tests/test_admin_control.py`
-
-### Control frontend
-- `frontend-control/next.config.ts`
-- `frontend-control/src/app/(dashboard)/moderation/page.tsx`
-- `frontend-control/src/app/(dashboard)/dashboard/page.tsx`
-- `frontend-control/src/app/(dashboard)/exports/page.tsx`
-- `frontend-control/src/app/(dashboard)/gold-records/page.tsx`
-- `frontend-control/src/app/(dashboard)/health/page.tsx`
-- `frontend-control/src/app/api/proxy-download/[snapshotId]/route.ts`
-
----
+1. Develop locally with local backend on `:8000`.
+2. Tunnel only remote ML/model/minio when needed.
+3. Commit backend changes before deploy.
+4. Sync committed source to remote `/data/lipi`.
+5. Rebuild remote backend image.
+6. Verify remote `/health`, ML `/health`, and `:8210/v1/models`.
+7. For schema changes, use Alembic only; do not mix `create_all` or silent init paths into an existing DB.
 
 ## Remaining Limits
 
-These are still true after the hardening work:
 - snapshot creation is synchronous and request-bound
 - live WS reply quality shift after approved correction is still only partially re-observed end-to-end
 - production MinIO artifact download should still be smoke-tested against the real bucket after deploy
-
-These are scale/ops limits, not broken paths.
-
----
+- the remote compose file remains an ops-managed artifact and can drift if edited directly on-host without updating the documented process
 
 ## Bottom Line
 
-The activation work is real, and the admin/control layer is now a functioning data-operations system rather than a thin moderation UI.
+The system is running, the remote deploy path is understood, and the main operational risk now is process drift rather than an unknown infrastructure bug.

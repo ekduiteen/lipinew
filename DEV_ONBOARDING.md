@@ -186,18 +186,19 @@ RAM:     256 GB
 Storage: 4 TB NVMe
 GPUs:    1× NVIDIA L40S (48 GB VRAM)
 
-GPU 0:  Host-level Gemma server on :8100
+GPU 0:  Remote Gemma app/proxy path exposed to backend on :8210
         + remote ML container (faster-whisper large-v3 on :5001)
         + no dedicated GPU left for compose-managed vLLM duplication
 ```
 
-> **Current live deployment note (2026-04-15):** the remote server currently has a single L40S, not two. The stable production-like layout is:
-> - host-level Gemma OpenAI-compatible server on `127.0.0.1:8100`
+> **Current live deployment note (2026-04-20):** the remote server currently has a single L40S, not two. The stable layout is:
+> - remote backend at `/data/lipi/docker-compose.lipi.yml`
 > - Docker `backend`, `ml`, `postgres`, `valkey`, `minio`
-> - Docker backend reaches host `vLLM` via `http://host.docker.internal:8100`
-> - compose-managed `vllm` should stay disabled on this host to avoid GPU memory contention
+> - remote backend reaches the model endpoint at `http://127.0.0.1:8210`
+> - postgres, valkey, minio, and ml are published on `127.0.0.1` for backend access
+> - compose-managed duplicate `vllm` should stay disabled on this host unless the topology is deliberately redesigned
 >
-> The *actual live remote rebuild path* currently uses `/data/lipi/docker-compose.lipi.yml`. Do not assume `docker-compose.yml` is the live runtime definition on that host.
+> `/data/lipi` is currently an ops-managed source snapshot, not a guaranteed live git checkout. Do not assume `git pull` on the host is the deploy path.
 
 ---
 
@@ -207,7 +208,7 @@ GPU 0:  Host-level Gemma server on :8100
 |-------|------|----------------|
 | Frontend | Next.js 14, TypeScript | App Router only, Server Components default |
 | Backend | FastAPI, Python 3.11 | async everywhere, httpx not requests |
-| LLM inference | Gemma OpenAI-compatible shim on remote `:8100` | backend still talks to it like an OpenAI/vLLM endpoint |
+| LLM inference | Gemma OpenAI-compatible shim on remote `:8210` | backend still talks to it like an OpenAI/vLLM endpoint |
 | LLM model | Gemma 4 | current live model on the single-L40S host |
 | STT | faster-whisper large-v3 | VAD built-in, no hold-to-talk |
 | TTS | Piper | Nepali baseline live now; split language routing in progress |
@@ -294,23 +295,29 @@ Infra services (`postgres`, `valkey`, `minio`) must still be running in Docker.
 ### 5.6 Frontend testing on a laptop (current safest path)
 
 ```bash
-# 1. Start a tunnel so the local frontend can reach the remote backend stack
+# 1. Start the local backend and local Docker infra first
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres valkey minio minio-init backend
+
+# 2. Tunnel only the remote services the local backend needs
 ssh -N -p 41447 \
-  -L 8000:localhost:8000 \
   -L 5001:localhost:5001 \
-  -L 8100:localhost:8100 \
+  -L 8100:localhost:8210 \
   -L 9000:localhost:9000 \
   ekduiteen@202.51.2.50
 
-# 2. In a separate terminal, start the Next dev server
+# 3. In separate terminals, start the local frontends
 cd frontend && npm install && npm run dev
+cd frontend-control && npm install && npm run dev -- --port 3001
 
-# 3. Verify the two ports independently
+# 4. Verify each layer
 curl -I http://127.0.0.1:3000
+curl -I http://127.0.0.1:3001
 curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:5001/health
+curl http://127.0.0.1:8100/v1/models
 ```
 
-If `:3000` responds but the app still does not load data, check `:8000` first. A healthy HTML page on `:3000` with a broken or missing backend on `:8000` looks like a "frontend stuck loading" issue but is really an API routing problem.
+Do not forward remote `:8000` onto local `:8000` while the local backend is running. If `:3000` responds but the app still does not load data, check local backend `:8000` first.
 
 ---
 
@@ -690,7 +697,12 @@ docker compose up -d postgres   # init-db.sql runs automatically
 
 ### Migrations
 
-Numbered SQL files in `backend/db/migrations/`. Never `ALTER TABLE` in application code.
+Numbered Alembic files in `backend/alembic/versions/`.
+
+Important operational rule after the 2026-04-20 reconciliation:
+- future schema changes should go through Alembic only
+- do not mix `init-db.sql`, ORM `create_all`, and Alembic on an existing database
+- if a DB is already drifted, treat it as a reconciliation task, not a normal `upgrade head`
 
 ---
 
@@ -775,30 +787,30 @@ All tabs live inside `app/(tabs)/` with shared `layout.tsx` containing `<BottomN
 OpenAI-compatible. The backend's `llm.py` calls `/v1/chat/completions` with `stream: true`.
 
 **Current remote runtime:**
-- host-level Gemma server listens on `127.0.0.1:8100`
-- model currently serving: `gemma-4-E4B-it`
-- Docker backend uses `VLLM_URL=http://host.docker.internal:8100`
-- compose-managed `vllm:8080` is intentionally not used on the single-L40S host
+- remote backend uses `VLLM_URL=http://127.0.0.1:8210`
+- local hybrid tunnel maps local `:8100` to remote `:8210`
+- compose-managed duplicate `vllm:8080` is intentionally not used on the single-L40S host
 
 ### Port Map (Current Remote + Tunnel Layout)
 
 | Port | Location | Purpose |
 |------|----------|---------|
 | `41447` | remote host | SSH |
-| `8000` | remote Docker + local tunnel | FastAPI backend for hybrid local frontend testing |
+| `8000` | local Docker and remote Docker | FastAPI backend |
 | `5001` | remote Docker + local tunnel | ML service |
-| `8100` | remote host + local tunnel | host-level Gemma OpenAI-compatible server |
+| `8100` | local tunnel only | local convenience port forwarded to remote `:8210` |
+| `8210` | remote host | backend-facing model endpoint |
 | `9000` | remote Docker + local tunnel | MinIO API |
 | `9001` | remote Docker | MinIO console |
-| `5432` | remote Docker internal only | PostgreSQL |
-| `6379` | remote Docker internal only | Valkey |
+| `5432` | remote host localhost-published | PostgreSQL |
+| `6379` | remote host localhost-published | Valkey |
 
-**Local forwarded ports currently in use:**
-- `127.0.0.1:8000` → remote backend, but only if the SSH tunnel is active
+**Local forwarded ports currently in use for hybrid dev:**
 - `127.0.0.1:5001` → remote ML
-- `127.0.0.1:8100` → remote host-level vLLM
+- `127.0.0.1:8100` → remote model endpoint on `:8210`
 - `127.0.0.1:9000` → remote MinIO
-- `127.0.0.1:3000` should be kept free for local `next dev`; do not include it in the SSH tunnel unless you intentionally want a remote frontend
+- keep local `127.0.0.1:8000` for the local backend
+- keep local `127.0.0.1:3000` and `:3001` for local Next dev
 
 ---
 
