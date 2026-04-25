@@ -92,19 +92,58 @@ export interface SessionMeta {
   session_id: string;
   user_id: string;
   started_at: string;
+  session_language_contract?: Record<string, unknown>;
 }
 
-export async function createSession(): Promise<SessionMeta> {
+export interface SessionCreatePayload {
+  country_code: string;
+  target_language: string;
+  bridge_language: string;
+  script: string;
+  dialect_label?: string;
+  teaching_mode: string;
+  allow_code_switching: boolean;
+  consent_training_use: boolean;
+}
+
+export async function createSession(payload?: SessionCreatePayload): Promise<SessionMeta> {
   // httpOnly cookie is automatically sent with this request
   const res = await fetch(`/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload ?? {
+      country_code: "NP",
+      target_language: "newari",
+      bridge_language: "ne",
+      script: "devanagari",
+      teaching_mode: "correction_mode",
+      allow_code_switching: true,
+      consent_training_use: false,
+    }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status} ${text}`);
   }
   return res.json() as Promise<SessionMeta>;
+}
+
+export interface CorrectionPayload {
+  action: "accept" | "edit" | "wrong_language" | "skip";
+  transcript?: string;
+  meaning_nepali?: string;
+  meaning_english?: string;
+}
+
+export async function submitCorrection(
+  sessionId: string,
+  messageId: string,
+  payload: CorrectionPayload
+): Promise<Record<string, unknown>> {
+  return request(`/sessions/${sessionId}/messages/${messageId}/correction`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ─── Stats / leaderboard ─────────────────────────────────────────────────────

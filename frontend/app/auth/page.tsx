@@ -128,6 +128,9 @@ function AuthPageInner() {
             <em style={{ color: "var(--fg-muted)" }}>LIPI listens.</em><br />
             Language lives.
           </p>
+          <p style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+            तपाईं बोल्नुहोस्। लिपि सिक्छ।
+          </p>
         </div>
       </div>
 

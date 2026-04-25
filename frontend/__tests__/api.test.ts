@@ -1,3 +1,5 @@
+export {};
+
 /**
  * Tests for lib/api.ts
  * Verify the API client sends requests correctly and handles errors.

@@ -26,6 +26,7 @@ from services import hearing as hearing_svc
 from services import keyterm_service as keyterm_service_svc
 from services import transcript_repair as transcript_repair_svc
 from services import turn_intelligence as turn_intelligence_svc
+from services.language_registry import load_language_profile
 
 if TYPE_CHECKING:
     pass
@@ -110,6 +111,10 @@ async def enqueue_turn(
     turn_intelligence: dict | None = None,
     audio_path: str | None = None,
     target_language: str | None = None,
+    session_language_contract: dict | None = None,
+    normalized_transcript: str | None = None,
+    training_tier: str | None = None,
+    asr_drift_type: str | None = None,
 ) -> None:
     """Persist a learning job to Valkey so extraction is durable and retryable."""
     should_enqueue, reason = _should_learn_from_turn(
@@ -120,6 +125,9 @@ async def enqueue_turn(
         turn_interpretation=turn_interpretation,
         input_understanding=input_understanding,
         target_language=target_language,
+        session_language_contract=session_language_contract,
+        training_tier=training_tier,
+        asr_drift_type=asr_drift_type,
     )
     if not should_enqueue:
         logger.info("Skipping learning enqueue: %s", reason)
@@ -140,6 +148,10 @@ async def enqueue_turn(
         "turn_intelligence": turn_intelligence or {},
         "audio_path": audio_path,
         "target_language": target_language or "",
+        "session_language_contract": session_language_contract or {},
+        "normalized_transcript": normalized_transcript or "",
+        "training_tier": training_tier or "",
+        "asr_drift_type": asr_drift_type or "",
         "enqueued_at": datetime.now(timezone.utc).isoformat(),
         "job_type": "turn"
     }
@@ -202,6 +214,9 @@ def _should_learn_from_turn(
     turn_interpretation: dict | None = None,
     input_understanding: dict | None = None,
     target_language: str | None = None,
+    session_language_contract: dict | None = None,
+    training_tier: str | None = None,
+    asr_drift_type: str | None = None,
 ) -> tuple[bool, str]:
     teacher_text = teacher_text.strip()
     lipi_response = lipi_response.strip()
@@ -215,10 +230,27 @@ def _should_learn_from_turn(
         return False, "teacher_text_too_short"
 
     normalized_target = (target_language or "").strip().lower()
-    newar_targets = {"newar", "newari", "newa", "nepal bhasa"}
-    if normalized_target in newar_targets:
-        if detected_language not in {"ne", "new"}:
-            return False, f"teacher_language={detected_language or 'unknown'}"
+    contract = session_language_contract or {}
+    base_asr_languages = {
+        str(item).lower()
+        for item in contract.get("base_asr_languages", [])
+    }
+    if training_tier == "rejected":
+        return False, "training_tier_rejected"
+    if asr_drift_type == "wrong_target_language":
+        return False, "wrong_target_language"
+    if normalized_target:
+        try:
+            language_profile = load_language_profile(normalized_target)
+            inheritance = {
+                normalized_target,
+                *[str(item).lower() for item in language_profile.get("inherits_from", [])],
+            }
+        except ValueError:
+            inheritance = {normalized_target}
+        acceptable_languages = inheritance | base_asr_languages
+        if detected_language and detected_language not in acceptable_languages and detected_language != "unknown":
+            return False, f"teacher_language={detected_language}"
     elif detected_language != settings.learning_required_teacher_language:
         return False, f"teacher_language={detected_language or 'unknown'}"
 
@@ -303,6 +335,10 @@ async def run_worker(http: httpx.AsyncClient) -> None:
                 turn_intelligence=dict(job.get("turn_intelligence") or {}),
                 audio_path=str(job.get("audio_path") or "") or None,
                 target_language=str(job.get("target_language", "") or ""),
+                session_language_contract=dict(job.get("session_language_contract") or {}),
+                normalized_transcript=str(job.get("normalized_transcript") or ""),
+                training_tier=str(job.get("training_tier") or ""),
+                asr_drift_type=str(job.get("asr_drift_type") or ""),
                 http=http,
             )
             await valkey.lrem(_PROCESSING_KEY, 1, raw)
@@ -351,6 +387,10 @@ async def _run(
     turn_intelligence: dict,
     audio_path: str | None,
     target_language: str,
+    session_language_contract: dict,
+    normalized_transcript: str,
+    training_tier: str,
+    asr_drift_type: str,
     http: httpx.AsyncClient,
 ) -> None:
     from services import llm as llm_svc
@@ -367,6 +407,9 @@ async def _run(
 
     if not audio_quality_ok:
         logger.debug("Low STT confidence (%.2f) — skipping extraction", stt_confidence)
+        return
+    if training_tier == "rejected":
+        logger.debug("Rejected training tier — skipping extraction")
         return
 
     if len(teacher_text.strip()) < 3:
@@ -571,6 +614,16 @@ async def _run(
                 user_id,
                 speaker_embedding_reason,
             )
+
+        logger.debug(
+            "Learning metadata session=%s target=%s training_tier=%s drift=%s normalized=%s contract=%s",
+            session_id,
+            target_language,
+            training_tier,
+            asr_drift_type,
+            bool(normalized_transcript),
+            bool(session_language_contract),
+        )
 
 
 def _validate_extraction(*, word: str, language: str, teacher_text: str) -> tuple[bool, str]:

@@ -7,7 +7,7 @@ from datetime import datetime, time, timezone
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cache import valkey
@@ -41,12 +41,20 @@ def _today_start() -> datetime:
 
 
 async def _table_exists(db: AsyncSession, table_name: str) -> bool:
-    return bool(
-        await db.scalar(
-            text("SELECT to_regclass(:table_name) IS NOT NULL"),
-            {"table_name": f"public.{table_name}"},
+    try:
+        return bool(
+            await db.scalar(
+                text("SELECT to_regclass(:table_name) IS NOT NULL"),
+                {"table_name": f"public.{table_name}"},
+            )
         )
-    )
+    except OperationalError:
+        return bool(
+            await db.scalar(
+                text("SELECT name FROM sqlite_master WHERE type = 'table' AND name = :table_name"),
+                {"table_name": table_name},
+            )
+        )
 
 
 async def _safe_count(db: AsyncSession, table_name: str, stmt) -> int:

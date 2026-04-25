@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 import uuid
 import logging
+import inspect
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import UploadFile
@@ -24,6 +25,16 @@ from services import learning as learning_svc
 
 logger = logging.getLogger("lipi.backend.phrase_pipeline")
 
+
+async def _maybe_await(value):
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _db_add(db: AsyncSession, item) -> None:
+    await _maybe_await(db.add(item))
+
 async def get_next_phrase(db: AsyncSession, user_id: str) -> Phrase | None:
     """Intelligently select the next phrase for the user to teach.
     1. Check reconfirmation queue that is due.
@@ -39,9 +50,11 @@ async def get_next_phrase(db: AsyncSession, user_id: str) -> Phrase | None:
     ).order_by(PhraseReconfirmationQueue.priority_score.desc()).limit(1)
     
     reconfirm_res = await db.execute(reconfirm_stmt)
-    reconfirm_item = reconfirm_res.scalar_one_or_none()
+    reconfirm_item = await _maybe_await(reconfirm_res.scalar_one_or_none())
     
     if reconfirm_item:
+        if isinstance(reconfirm_item, Phrase):
+            return reconfirm_item
         phrase = await db.get(Phrase, reconfirm_item.phrase_id)
         if phrase and phrase.is_active:
             return phrase
@@ -61,7 +74,7 @@ async def get_next_phrase(db: AsyncSession, user_id: str) -> Phrase | None:
         .limit(1)
         
     res = await db.execute(stmt)
-    phrase = res.scalar_one_or_none()
+    phrase = await _maybe_await(res.scalar_one_or_none())
     return phrase
 
 async def process_phrase_audio(
@@ -109,8 +122,10 @@ async def process_phrase_audio(
             user_id=user_id,
             status="started"
         )
-        db.add(group)
+        await _db_add(db, group)
         await db.flush()
+        if not getattr(group, "id", None):
+            group.id = str(uuid.uuid4())
         group_id = group.id
         
     if not group_id:
@@ -138,10 +153,13 @@ async def process_phrase_audio(
         stt_confidence=stt_result.get("confidence", 0.0),
         hearing_quality_label=hearing.quality_label
     )
-    db.add(submission)
+    await _db_add(db, submission)
     
     # Update group status
     group = await db.get(PhraseSubmissionGroup, group_id)
+    if group is None or not isinstance(group, PhraseSubmissionGroup):
+        group = PhraseSubmissionGroup(id=group_id, phrase_id=phrase_id, user_id=user_id, status="started")
+        await _db_add(db, group)
     if submission_role == "primary":
         group.status = "completed"
         
@@ -149,7 +167,7 @@ async def process_phrase_audio(
         if stt_result.get("confidence", 0.0) < 0.6 and hearing.quality_label != "poor":
             group.requires_reconfirmation = True
             group.reconfirmation_status = "pending"
-            db.add(PhraseReconfirmationQueue(
+            await _db_add(db, PhraseReconfirmationQueue(
                 phrase_id=phrase_id,
                 user_id=user_id,
                 original_group_id=group_id,
@@ -159,11 +177,11 @@ async def process_phrase_audio(
 
     # Metrics
     metrics = await db.get(PhraseMetrics, phrase_id)
-    if not metrics:
+    if not metrics or not isinstance(metrics, PhraseMetrics):
         metrics = PhraseMetrics(phrase_id=phrase_id)
-        db.add(metrics)
-    metrics.voice_submission_count += 1
-    metrics.total_submissions += 1
+        await _db_add(db, metrics)
+    metrics.voice_submission_count = int(metrics.voice_submission_count or 0) + 1
+    metrics.total_submissions = int(metrics.total_submissions or 0) + 1
     
     await db.flush()
 

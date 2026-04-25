@@ -4,6 +4,10 @@ from .session import TeachingSession
 from .points import PointsTransaction, TeacherPointsSummary
 from .badge import Badge, TeacherBadge
 from .message import Message
+from .asr_candidate import ASRCandidate
+from .asr_error_event import ASRErrorEvent
+from .text_corpus_item import TextCorpusItem
+from .training_export import TrainingExport
 from .curriculum import (
     UserCurriculumProfile,
     UserTopicCoverage,
@@ -46,6 +50,10 @@ __all__ = [
     "Badge",
     "TeacherBadge",
     "Message",
+    "ASRCandidate",
+    "ASRErrorEvent",
+    "TextCorpusItem",
+    "TrainingExport",
     "UserCurriculumProfile",
     "UserTopicCoverage",
     "GlobalLanguageCoverage",

@@ -1,3 +1,5 @@
+export {};
+
 /**
  * Tests for lib/websocket.ts
  * Verify WebSocket behavior — token handling, audio sending, message parsing.

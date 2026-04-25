@@ -93,8 +93,14 @@ app = FastAPI(title="LIPI ML Service", version="0.3.0", lifespan=lifespan)
 class STTResponse(BaseModel):
     text: str
     language: str
+    selected_transcript: str
+    selected_language: str
+    detected_language: str
+    target_language: str | None = None
+    base_asr_languages: list[str] = []
     confidence: float
     duration_ms: int
+    candidates: list[dict] = []
 
 
 class TTSRequest(BaseModel):
@@ -144,6 +150,10 @@ async def speech_to_text(
     audio: UploadFile = File(...),
     prompt: str = Form(""),
     language_hint: str = Form(""),
+    candidate_languages_json: str = Form(""),
+    base_asr_languages_json: str = Form(""),
+    target_language: str = Form(""),
+    enable_auto_candidate: bool = Form(True),
 ) -> STTResponse:
     if stt_service is None:
         raise HTTPException(status_code=503, detail=f"STT service not ready: {stt_error or 'unknown error'}")
@@ -154,6 +164,14 @@ async def speech_to_text(
             audio_bytes,
             prompt=prompt.strip() or None,
             language_hint=language_hint.strip() or None,
+            candidate_languages=[
+                item for item in candidate_languages_json.split(",") if item.strip()
+            ],
+            base_asr_languages=[
+                item for item in base_asr_languages_json.split(",") if item.strip()
+            ],
+            target_language=target_language.strip() or None,
+            enable_auto_candidate=enable_auto_candidate,
         )
         return STTResponse(**result)
     except Exception as exc:

@@ -44,11 +44,15 @@ async def db_engine():
     import models.user     # noqa: F401 — register models
     import models.session  # noqa: F401
     import models.message  # noqa: F401
+    import models.asr_candidate  # noqa: F401
+    import models.asr_error_event  # noqa: F401
     import models.points   # noqa: F401
     import models.badge    # noqa: F401
     import models.curriculum  # noqa: F401
     import models.intelligence  # noqa: F401
     import models.phrases  # noqa: F401
+    import models.text_corpus_item  # noqa: F401
+    import models.training_export  # noqa: F401
 
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:

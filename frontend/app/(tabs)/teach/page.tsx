@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react";
 import Orb, { type OrbState } from "@/components/orb/Orb";
 import { BilingualText, FrostPill, Mono } from "@/components/ui/LipiPrimitives";
-import { createSession } from "@/lib/api";
+import { createSession, submitCorrection, type SessionCreatePayload } from "@/lib/api";
 import { LipiWebSocket } from "@/lib/websocket";
 import Link from "next/link";
 
@@ -19,6 +19,42 @@ interface SubtitleEntry {
   who: "lipi" | "user";
   meta?: string;
 }
+
+interface CorrectionState {
+  messageId: string;
+  transcript: string;
+  confidence?: number;
+  driftType?: string;
+  trainingTier?: string;
+}
+
+const LANGUAGE_OPTIONS = [
+  { code: "ne", label: "Nepali", scripts: ["devanagari", "latin"], bridge: ["ne", "en"] },
+  { code: "en", label: "English", scripts: ["latin"], bridge: ["en"] },
+  { code: "newari", label: "Nepal Bhasha / Newari", scripts: ["devanagari", "ranjana", "latin"], bridge: ["ne", "en"] },
+  { code: "mai", label: "Maithili", scripts: ["devanagari", "tirhuta", "latin"], bridge: ["ne", "hi", "en"] },
+  { code: "bho", label: "Bhojpuri", scripts: ["devanagari", "latin"], bridge: ["ne", "hi", "en"] },
+  { code: "taj", label: "Tamang", scripts: ["devanagari", "latin"], bridge: ["ne", "en"] },
+  { code: "gurung", label: "Gurung", scripts: ["devanagari", "latin"], bridge: ["ne", "en"] },
+  { code: "sherpa", label: "Sherpa", scripts: ["devanagari", "latin", "tibetan"], bridge: ["ne", "en"] },
+  { code: "tharu", label: "Tharu", scripts: ["devanagari", "latin"], bridge: ["ne", "hi", "en"] },
+  { code: "hi", label: "Hindi", scripts: ["devanagari", "latin"], bridge: ["hi", "en"] },
+  { code: "mixed", label: "Mixed / Code-switching", scripts: ["devanagari", "latin"], bridge: ["ne", "en", "hi"] },
+  { code: "other", label: "Other", scripts: ["latin", "devanagari"], bridge: ["en"] },
+] as const;
+
+const TEACHING_MODES = [
+  ["free_conversation", "Free conversation"],
+  ["phrase_recording", "Phrase recording"],
+  ["correction_mode", "Correction mode"],
+  ["storytelling", "Storytelling"],
+  ["ritual_cultural_words", "Ritual / cultural words"],
+  ["household_speech", "Household speech"],
+  ["proverbs_idioms", "Proverbs / idioms"],
+  ["translation_teaching", "Translation teaching"],
+  ["pronunciation_practice", "Pronunciation practice"],
+  ["code_switch_practice", "Code-switch practice"],
+] as const;
 
 function getClientCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
@@ -37,6 +73,20 @@ export default function TeachPage() {
   const [subtitles, setSubtitles]       = useState<SubtitleEntry[]>([]);
   const [learnedWord, setLearnedWord]   = useState<string | null>(null);
   const [elapsed, setElapsed]           = useState(0);
+  const [sessionContract, setSessionContract] = useState<Record<string, unknown> | null>(null);
+  const [setup, setSetup] = useState<SessionCreatePayload>({
+    country_code: "NP",
+    target_language: "newari",
+    bridge_language: "ne",
+    script: "devanagari",
+    dialect_label: "",
+    teaching_mode: "correction_mode",
+    allow_code_switching: true,
+    consent_training_use: false,
+  });
+  const [setupStarted, setSetupStarted] = useState(false);
+  const [pendingCorrection, setPendingCorrection] = useState<CorrectionState | null>(null);
+  const [correctionText, setCorrectionText] = useState("");
 
   const wsRef                 = useRef<LipiWebSocket | null>(null);
   const audioCtxRef           = useRef<AudioContext | null>(null);
@@ -86,9 +136,21 @@ export default function TeachPage() {
     flushAudio();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const activeLanguage = LANGUAGE_OPTIONS.find((item) => item.code === setup.target_language) ?? LANGUAGE_OPTIONS[2];
+
+  function updateTargetLanguage(targetLanguage: string) {
+    const nextLanguage = LANGUAGE_OPTIONS.find((item) => item.code === targetLanguage) ?? LANGUAGE_OPTIONS[0];
+    setSetup((prev) => ({
+      ...prev,
+      target_language: nextLanguage.code,
+      script: nextLanguage.scripts[0],
+      bridge_language: nextLanguage.bridge[0],
+    }));
+  }
+
   // ── Bootstrap session + WebSocket ─────────────────────────────────────────
   useEffect(() => {
-    if (bootstrappedRef.current) return;
+    if (!setupStarted || bootstrappedRef.current) return;
     bootstrappedRef.current = true;
 
     let ws: LipiWebSocket | undefined;
@@ -96,9 +158,21 @@ export default function TeachPage() {
 
     const makeCallbacks = (handleOpen: () => void) => ({
       onOpen: handleOpen,
-      onTranscript: (text: string, language?: string, confidence?: number) => {
+      onTranscript: (text: string, language?: string, confidence?: number, meta?: Record<string, unknown>) => {
         const confText = typeof confidence === "number" ? ` · ${(confidence * 100).toFixed(0)}%` : "";
-        pushSubtitle(text, "user", `${language ?? "?"}${confText}`);
+        const drift = typeof meta?.asr_drift_type === "string" && meta.asr_drift_type !== "no_drift"
+          ? ` · ${meta.asr_drift_type}`
+          : "";
+        pushSubtitle(text, "user", `${language ?? "?"}${confText}${drift}`);
+        if (meta?.needs_teacher_confirmation || (typeof confidence === "number" && confidence < 0.65)) {
+          setCorrectionText(text);
+          setPendingCorrection({
+            messageId: "",
+            transcript: text,
+            confidence,
+            driftType: meta?.asr_drift_type as string | undefined,
+          });
+        }
         setStatusText("सोच्दैछ · Thinking");
       },
       onToken: (text: string) => {
@@ -122,6 +196,17 @@ export default function TeachPage() {
       onTTSEnd: () => {
         ttsActiveRef.current = false;
         if (micReady) setStatusText("सुनिरहेको छ · Listening");
+      },
+      onTurnSaved: (payload: Record<string, unknown>) => {
+        if (payload.needs_teacher_confirmation && typeof payload.message_id === "string") {
+          setPendingCorrection((prev) => ({
+            messageId: payload.message_id as string,
+            transcript: prev?.transcript ?? "",
+            confidence: prev?.confidence,
+            driftType: (payload.asr_drift_type as string | undefined) ?? prev?.driftType,
+            trainingTier: payload.training_tier as string | undefined,
+          }));
+        }
       },
       onEmptyAudio: () => {
         setOrbState("idle");
@@ -178,10 +263,11 @@ export default function TeachPage() {
 
       let sessionId: string;
       try {
-        const session = await createSession();
+        const session = await createSession(setup);
         sessionId = session.session_id;
         sessionIdRef.current = sessionId;
         userIdRef.current = session.user_id;
+        setSessionContract(session.session_language_contract ?? null);
         localStorage.setItem("lipi.user_id", session.user_id);
         setSessionReady(true);
         setStatusText("सत्र तयार छ · Session ready");
@@ -240,7 +326,24 @@ export default function TeachPage() {
       ttsActiveRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setupStarted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleCorrection(action: "accept" | "edit" | "wrong_language" | "skip") {
+    if (!pendingCorrection || !sessionIdRef.current || !pendingCorrection.messageId) {
+      setPendingCorrection(null);
+      return;
+    }
+    try {
+      await submitCorrection(sessionIdRef.current, pendingCorrection.messageId, {
+        action,
+        transcript: action === "edit" || action === "wrong_language" ? correctionText : pendingCorrection.transcript,
+      });
+      setStatusText(action === "skip" ? "नसुरक्षित · Not saved" : "सुधार सुरक्षित भयो · Correction saved");
+      setPendingCorrection(null);
+    } catch {
+      setStatusText("सुधार सुरक्षित गर्न सकिएन · Could not save correction");
+    }
+  }
 
   // ── Audio playback queue ──────────────────────────────────────────────────
   async function drainQueue() {
@@ -385,6 +488,96 @@ export default function TeachPage() {
           en: "Dashain is Nepal's biggest festival, right?",
         };
 
+  if (!setupStarted) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        background: "var(--bg)",
+        color: "var(--fg)",
+        padding: "32px 20px 96px",
+        overflowY: "auto",
+      }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", display: "grid", gap: 18 }}>
+          <div>
+            <Mono>START TEACHING SESSION</Mono>
+            <h1 style={{ fontFamily: "var(--font-nepali-ui)", fontSize: 28, margin: "10px 0 6px" }}>
+              Choose what LIPI should learn
+            </h1>
+            <p style={{ color: "var(--fg-muted)", lineHeight: 1.55, margin: 0 }}>
+              LIPI uses Nepali + English as Nepal ASR anchors, but your selected language is the learning target.
+            </p>
+          </div>
+
+          <div style={{ display: "grid", gap: 14 }}>
+            <label style={fieldStyle}>
+              <span>Country</span>
+              <select value={setup.country_code} onChange={(e) => setSetup({ ...setup, country_code: e.target.value })} style={inputStyle}>
+                <option value="NP">Nepal</option>
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>Language to teach LIPI</span>
+              <select value={setup.target_language} onChange={(e) => updateTargetLanguage(e.target.value)} style={inputStyle}>
+                {LANGUAGE_OPTIONS.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>Script</span>
+              <select value={setup.script} onChange={(e) => setSetup({ ...setup, script: e.target.value })} style={inputStyle}>
+                {activeLanguage.scripts.map((script) => <option key={script} value={script}>{script}</option>)}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>Bridge language</span>
+              <select value={setup.bridge_language} onChange={(e) => setSetup({ ...setup, bridge_language: e.target.value })} style={inputStyle}>
+                {activeLanguage.bridge.map((language) => <option key={language} value={language}>{language}</option>)}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span>Dialect / region label</span>
+              <input
+                value={setup.dialect_label ?? ""}
+                onChange={(e) => setSetup({ ...setup, dialect_label: e.target.value })}
+                placeholder="Patan Newar, Janakpur Maithili, Kathmandu Nepali"
+                style={inputStyle}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span>Teaching mode</span>
+              <select value={setup.teaching_mode} onChange={(e) => setSetup({ ...setup, teaching_mode: e.target.value })} style={inputStyle}>
+                {TEACHING_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label style={{ ...fieldStyle, gridTemplateColumns: "auto 1fr", alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={setup.consent_training_use}
+                onChange={(e) => setSetup({ ...setup, consent_training_use: e.target.checked })}
+                style={{ width: 20, height: 20 }}
+              />
+              <span>I allow LIPI to use my corrected speech and text to improve this language model.</span>
+            </label>
+          </div>
+
+          <button
+            onClick={() => setSetupStarted(true)}
+            style={{
+              minHeight: 54,
+              border: "none",
+              borderRadius: 8,
+              background: "var(--accent)",
+              color: "var(--accent-fg)",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          >
+            Start session
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       position: "fixed",
@@ -424,7 +617,26 @@ export default function TeachPage() {
 
         {/* Language indicator */}
         <FrostPill>
-          <Mono>NE · ↔ · EN</Mono>
+          <Mono>{String(sessionContract?.target_language ?? setup.target_language).toUpperCase()} · NE+EN</Mono>
+        </FrostPill>
+      </div>
+
+      <div style={{
+        position: "absolute",
+        top: 104,
+        left: 20,
+        right: 20,
+        zIndex: 9,
+        display: "flex",
+        justifyContent: "center",
+        pointerEvents: "none",
+      }}>
+        <FrostPill>
+          <Mono>Teaching: {activeLanguage.label}</Mono>
+          <span style={{ color: "var(--fg-subtle)" }}>·</span>
+          <Mono>ASR anchor: Nepali + English</Mono>
+          <span style={{ color: "var(--fg-subtle)" }}>·</span>
+          <Mono>Data tier: {pendingCorrection?.trainingTier ?? "pending teacher verification"}</Mono>
         </FrostPill>
       </div>
 
@@ -556,6 +768,46 @@ export default function TeachPage() {
         </div>
       )}
 
+      {pendingCorrection && (
+        <div style={{
+          position: "absolute",
+          left: 20,
+          right: 20,
+          bottom: 150,
+          zIndex: 20,
+          maxWidth: 620,
+          margin: "0 auto",
+          background: "var(--bg-card)",
+          border: "1px solid var(--rule)",
+          borderRadius: 8,
+          padding: 16,
+          boxShadow: "var(--shadow-float)",
+        }}>
+          <Mono>LIPI heard this. Please correct it if needed. Your correction teaches LIPI this language.</Mono>
+          <textarea
+            value={correctionText}
+            onChange={(e) => setCorrectionText(e.target.value)}
+            style={{
+              width: "100%",
+              minHeight: 76,
+              marginTop: 10,
+              borderRadius: 8,
+              border: "1px solid var(--rule)",
+              background: "var(--bg)",
+              color: "var(--fg)",
+              padding: 10,
+              resize: "vertical",
+            }}
+          />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            <button style={smallButtonStyle} onClick={() => handleCorrection("accept")}>Accept</button>
+            <button style={smallButtonStyle} onClick={() => handleCorrection("edit")}>Save edit</button>
+            <button style={smallButtonStyle} onClick={() => handleCorrection("wrong_language")}>Wrong language</button>
+            <button style={smallButtonStyle} onClick={() => handleCorrection("skip")}>Skip</button>
+          </div>
+        </div>
+      )}
+
       {/* Bottom controls */}
       <div style={{
         position: "absolute",
@@ -661,6 +913,34 @@ export default function TeachPage() {
     </div>
   );
 }
+
+const fieldStyle: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  fontFamily: "var(--font-sans)",
+  fontSize: 14,
+  color: "var(--fg-muted)",
+};
+
+const inputStyle: CSSProperties = {
+  minHeight: 46,
+  borderRadius: 8,
+  border: "1px solid var(--rule)",
+  background: "var(--bg-card)",
+  color: "var(--fg)",
+  padding: "0 12px",
+  fontSize: 15,
+};
+
+const smallButtonStyle: CSSProperties = {
+  minHeight: 38,
+  borderRadius: 8,
+  border: "1px solid var(--rule)",
+  background: "var(--bg)",
+  color: "var(--fg)",
+  padding: "0 12px",
+  cursor: "pointer",
+};
 
 // ─── WAV encoder (PCM float32 → 16-bit WAV) ──────────────────────────────────
 function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {

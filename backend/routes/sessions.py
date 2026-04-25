@@ -25,14 +25,16 @@ import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
 import httpx
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import cache
 from config import settings
 from db.connection import SessionLocal, get_db
 from dependencies.auth import get_ws_user, get_current_user_flexible
+from models.message import Message
 from models.curriculum import UserCurriculumProfile
 from models.session import TeachingSession
 from models.user import User
@@ -64,6 +66,11 @@ from services import transcript_repair as transcript_repair_svc
 from services import topic_memory as topic_memory_svc
 from services import turn_intelligence as turn_intelligence_svc
 from services import turn_interpreter as turn_interpreter_svc
+from services.country_registry import get_base_asr_languages, load_country_profile, validate_country_target_language
+from services.language_registry import get_normalization_rules, load_language_profile
+from services.text_normalization import normalize_text_for_training
+from services.asr_error_classifier import classify_asr_error
+from services.data_quality import assign_training_tier
 from services.prompt_builder import (
     TeacherProfile,
     build_system_prompt,
@@ -76,7 +83,65 @@ logger = logging.getLogger("lipi.backend.sessions")
 _MSG_HISTORY_KEY = "session:{session_id}:messages"
 _PROFILE_KEY = "user:{user_id}:tone_profile"
 _MAX_CONTEXT_TURNS = 20
+_TEACHING_MODES = {
+    "free_conversation",
+    "phrase_recording",
+    "correction_mode",
+    "storytelling",
+    "ritual_cultural_words",
+    "household_speech",
+    "proverbs_idioms",
+    "translation_teaching",
+    "pronunciation_practice",
+    "code_switch_practice",
+}
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
+
+class SessionCreateRequest(BaseModel):
+    country_code: str = "NP"
+    target_language: str = "newari"
+    bridge_language: str = "ne"
+    script: str = "devanagari"
+    dialect_label: str | None = None
+    teaching_mode: str = "correction_mode"
+    allow_code_switching: bool = True
+    consent_training_use: bool = False
+
+
+class CorrectionRequest(BaseModel):
+    action: str
+    transcript: str | None = None
+    meaning_nepali: str | None = None
+    meaning_english: str | None = None
+
+
+def _build_session_language_contract(
+    payload: SessionCreateRequest,
+    *,
+    country_profile: dict,
+    language_profile: dict,
+) -> dict:
+    base_asr_languages = get_base_asr_languages(payload.country_code, region=None)
+    return {
+        "country_code": payload.country_code.upper(),
+        "base_asr_languages": base_asr_languages,
+        "target_language": payload.target_language.lower(),
+        "bridge_language": payload.bridge_language.lower(),
+        "script": payload.script.lower(),
+        "dialect_label": payload.dialect_label,
+        "teaching_mode": payload.teaching_mode,
+        "allow_code_switching": payload.allow_code_switching,
+        "consent_training_use": payload.consent_training_use,
+        "drift_policy": country_profile.get("drift_policy"),
+        "asr_strategy": country_profile.get("asr_strategy"),
+        "language_profile": {
+            "display_name": language_profile.get("display_name"),
+            "native_name": language_profile.get("native_name"),
+            "bridge_languages": language_profile.get("bridge_languages", []),
+            "default_script": language_profile.get("default_script"),
+        },
+    }
 
 
 def _normalize_reply_for_repeat_check(text: str) -> str:
@@ -333,12 +398,29 @@ def _build_cross_session_prompt_context(
 
 @router.post("/api/sessions")
 async def create_session(
+    payload: SessionCreateRequest = Body(default_factory=SessionCreateRequest),
     user_id: str = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Create a new teaching session row and return the session_id."""
     session_id = str(uuid.uuid4())
     profile = await _load_tone_profile(user_id)
+    country_profile = load_country_profile(payload.country_code)
+    if not validate_country_target_language(payload.country_code, payload.target_language):
+        raise HTTPException(status_code=400, detail="unsupported_target_language_for_country")
+    language_profile = load_language_profile(payload.target_language)
+    if payload.teaching_mode not in _TEACHING_MODES:
+        raise HTTPException(status_code=400, detail="unsupported_teaching_mode")
+    allowed_scripts = {str(script).lower() for script in language_profile.get("scripts", [])}
+    if payload.script.lower() not in allowed_scripts:
+        raise HTTPException(status_code=400, detail="unsupported_script_for_language")
+    if payload.bridge_language.lower() not in {str(item).lower() for item in language_profile.get("bridge_languages", [])}:
+        raise HTTPException(status_code=400, detail="unsupported_bridge_language")
+    session_contract = _build_session_language_contract(
+        payload,
+        country_profile=country_profile,
+        language_profile=language_profile,
+    )
     user = await db.get(User, user_id)
     if user is not None:
         await curriculum_svc.get_or_create_user_profile(
@@ -351,6 +433,16 @@ async def create_session(
         id=session_id,
         teacher_id=user_id,
         register_used=profile.register,
+        country_code=session_contract["country_code"],
+        base_asr_languages=session_contract["base_asr_languages"],
+        target_language=session_contract["target_language"],
+        bridge_language=session_contract["bridge_language"],
+        script=session_contract["script"],
+        dialect_label=session_contract["dialect_label"],
+        teaching_mode=session_contract["teaching_mode"],
+        allow_code_switching=session_contract["allow_code_switching"],
+        consent_training_use=session_contract["consent_training_use"],
+        session_language_contract=session_contract,
     ))
     if user is not None:
         streak = await points_svc.get_current_streak(db, user_id)
@@ -363,6 +455,92 @@ async def create_session(
         "session_id": session_id,
         "user_id": user_id,
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "session_language_contract": session_contract,
+    }
+
+
+@router.post("/api/sessions/{session_id}/messages/{message_id}/correction")
+async def submit_teacher_correction(
+    session_id: str,
+    message_id: str,
+    payload: CorrectionRequest,
+    user_id: str = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    session = await db.get(TeachingSession, session_id)
+    if session is None or session.teacher_id != user_id:
+        raise HTTPException(status_code=404, detail="session_not_found")
+    message = await db.get(Message, message_id)
+    if message is None or message.session_id != session_id or message.role != "teacher":
+        raise HTTPException(status_code=404, detail="message_not_found")
+
+    contract = dict(session.session_language_contract or {})
+    language_profile = load_language_profile(str(session.target_language or contract.get("target_language") or "ne"))
+    action = payload.action.strip().lower()
+    if action not in {"accept", "edit", "wrong_language", "skip"}:
+        raise HTTPException(status_code=400, detail="unsupported_correction_action")
+
+    corrected_text = payload.transcript.strip() if payload.transcript else None
+    if action == "accept":
+        corrected_text = message.text
+    if action == "skip":
+        await db.commit()
+        return {"message_id": message.id, "status": "skipped"}
+
+    drift_type = "wrong_target_language" if action == "wrong_language" else str(message.asr_drift_type or "no_drift")
+    normalization = normalize_text_for_training(
+        corrected_text or "",
+        language_code=str(message.target_language or session.target_language or "ne"),
+        script=str(message.script or session.script or "devanagari"),
+        normalization_rules=get_normalization_rules(str(message.target_language or session.target_language or "ne")),
+    )
+    error = classify_asr_error(
+        raw_stt=str(message.raw_stt or message.text or ""),
+        teacher_correction=corrected_text or "",
+        language_profile=language_profile,
+        script=str(message.script or session.script or "devanagari"),
+        drift_type=drift_type,
+    )
+    quality = assign_training_tier(
+        audio_quality=float(message.audio_quality or 0.0),
+        stt_confidence=float(message.stt_confidence or 0.0),
+        teacher_verified=action != "skip",
+        teacher_corrected=action in {"edit", "wrong_language"},
+        consent_training_use=bool(session.consent_training_use),
+        asr_drift_type=drift_type,
+        error_type=error["error_type"],
+        language_profile=language_profile,
+    )
+    await message_store.apply_teacher_correction(
+        db,
+        message=message,
+        teacher_id=user_id,
+        corrected_text=corrected_text,
+        normalized_transcript=normalization.get("normalized_text"),
+        asr_drift_type=drift_type,
+        correction_error_type=error["error_type"],
+        correction_error_family=error["error_family"],
+        training_tier=quality["training_tier"],
+        training_eligible=quality["training_eligible"],
+        consent_training_use=bool(session.consent_training_use),
+        source_type="manual_teacher" if action in {"accept", "edit"} else "wrong_language",
+        meaning_nepali=payload.meaning_nepali,
+        meaning_english=payload.meaning_english,
+        correction_metadata={
+            "action": action,
+            "reason": quality["reason"],
+            "base_asr_languages": contract.get("base_asr_languages", []),
+            "normalization_warnings": normalization.get("warnings", []),
+        },
+    )
+    await db.commit()
+    return {
+        "message_id": message.id,
+        "teacher_verified": message.teacher_verified,
+        "training_tier": message.training_tier,
+        "training_eligible": message.training_eligible,
+        "correction_error_type": message.correction_error_type,
+        "asr_drift_type": message.asr_drift_type,
     }
 
 
@@ -410,40 +588,36 @@ async def conversation_ws(
         approved_rules=approved_rules,
     )
 
-    # Determine if teach mode is enabled (check early for system prompt)
-    disable_teach_behaviors = os.getenv("LIPI_DISABLE_TEACH_BEHAVIORS", "").lower() == "true"
-    teach_mode_enabled = not disable_teach_behaviors
-
-    # Build system prompt based on mode
-    if teach_mode_enabled:
-        system_prompt = build_system_prompt(profile) + cross_session_prompt_context
-    else:
-        # Regular LLM mode: simple, non-teaching system prompt
-        system_prompt = (
-            "You are a warm, helpful, and friendly conversational AI. "
-            "Engage naturally with the user on any topic they bring up. "
-            "Be concise, genuine, and interested in what they say. "
-            "Ask follow-up questions when it helps the conversation flow. "
-            "Don't have hidden agendas or try to extract information—just be a good conversational partner."
-        )
-
     message_history: list[dict] = await _load_message_history(session_id)
     user: User | None = None
     curriculum_profile: UserCurriculumProfile | None = None
-
-    if not message_history or message_history[0].get("role") != "system":
-        message_history.insert(0, {"role": "system", "content": system_prompt})
+    session_contract: dict | None = None
 
     http = websocket.app.state.http
 
     # Ensure session row exists
     async with SessionLocal() as db:
-        if not await db.get(TeachingSession, session_id):
+        session = await db.get(TeachingSession, session_id)
+        if not session:
             db.add(TeachingSession(
                 id=session_id,
                 teacher_id=user_id,
                 register_used=profile.register,
             ))
+            session_contract = {
+                "country_code": "NP",
+                "base_asr_languages": ["ne", "en"],
+                "target_language": "ne",
+                "bridge_language": "ne",
+                "script": "devanagari",
+                "dialect_label": None,
+                "teaching_mode": "free_conversation",
+                "allow_code_switching": True,
+                "consent_training_use": False,
+                "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+            }
+        else:
+            session_contract = dict(session.session_language_contract or {})
         user = await db.get(User, user_id)
         if user is None:
             raise RuntimeError(f"User not found: {user_id}")
@@ -454,6 +628,49 @@ async def conversation_ws(
             code_switch_tendency=profile.code_switch_ratio,
         )
         await db.commit()
+
+    session_contract = session_contract or {
+        "country_code": "NP",
+        "base_asr_languages": ["ne", "en"],
+        "target_language": "ne",
+        "bridge_language": "ne",
+        "script": "devanagari",
+        "dialect_label": None,
+        "teaching_mode": "free_conversation",
+        "allow_code_switching": True,
+        "consent_training_use": False,
+        "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+    }
+    try:
+        target_language_profile = load_language_profile(session_contract.get("target_language", "ne"))
+        profile.native_language = str(target_language_profile.get("display_name") or session_contract.get("target_language"))
+        profile.other_languages = list(
+            dict.fromkeys(
+                [profile.native_language, *session_contract.get("base_asr_languages", []), session_contract.get("bridge_language", "")]
+            )
+        )
+    except ValueError:
+        target_language_profile = {"display_name": session_contract.get("target_language", "ne")}
+        profile.native_language = str(session_contract.get("target_language", "ne"))
+
+    # Determine if teach mode is enabled (check early for system prompt)
+    disable_teach_behaviors = os.getenv("LIPI_DISABLE_TEACH_BEHAVIORS", "").lower() == "true"
+    teach_mode_enabled = not disable_teach_behaviors
+
+    # Build system prompt based on mode
+    if teach_mode_enabled:
+        system_prompt = build_system_prompt(profile, session_contract=session_contract) + cross_session_prompt_context
+    else:
+        system_prompt = (
+            "You are a warm, helpful, and friendly conversational AI. "
+            "Engage naturally with the user on any topic they bring up. "
+            "Be concise, genuine, and interested in what they say. "
+            "Ask follow-up questions when it helps the conversation flow. "
+            "Don't have hidden agendas or try to extract information—just be a good conversational partner."
+        )
+
+    if not message_history or message_history[0].get("role") != "system":
+        message_history.insert(0, {"role": "system", "content": system_prompt})
 
     # Track turn index in-memory for this connection
     turn_index = 0
@@ -495,6 +712,9 @@ async def conversation_ws(
                 http,
                 prompt=turn_keyterms.prompt_hint,
                 language_hint=long_term.active_language or session_turn_memory.get("active_language") or None,
+                session_language_contract=session_contract,
+                teacher_id=user_id,
+                session_id=session_id,
             )
             stt_ms = int((time.monotonic() - stt_t0) * 1000)
 
@@ -515,6 +735,22 @@ async def conversation_ws(
                 confidence=effective_confidence,
                 audio_quality_score=max(hearing.audio_quality_score, min(effective_confidence, 0.99)),
             )
+            normalization = normalize_text_for_training(
+                teacher_text,
+                language_code=str(session_contract.get("target_language") or "ne"),
+                script=str(session_contract.get("script") or "devanagari"),
+                normalization_rules=get_normalization_rules(str(session_contract.get("target_language") or "ne")),
+            )
+            initial_quality = assign_training_tier(
+                audio_quality=float(hearing.audio_quality_score or 0.0),
+                stt_confidence=float(hearing.confidence or 0.0),
+                teacher_verified=False,
+                teacher_corrected=False,
+                consent_training_use=bool(session_contract.get("consent_training_use", False)),
+                asr_drift_type=str(stt_result.get("asr_drift_type") or "no_drift"),
+                error_type=None,
+                language_profile=target_language_profile,
+            )
 
             await websocket.send_json({
                 "type": "transcript",
@@ -524,6 +760,14 @@ async def conversation_ws(
                 "mode": hearing.mode,
                 "quality": hearing.quality_label,
                 "repair_applied": bool(repair_result.applied_repairs),
+                "selected_language": stt_result.get("selected_language"),
+                "detected_language": stt_result.get("detected_language"),
+                "target_language": stt_result.get("target_language"),
+                "base_asr_languages": stt_result.get("base_asr_languages"),
+                "needs_teacher_confirmation": stt_result.get("needs_teacher_confirmation", False),
+                "asr_drift_type": stt_result.get("asr_drift_type"),
+                "code_switch_ratio": stt_result.get("code_switch_ratio", 0.0),
+                "candidates": stt_result.get("candidates", []),
             })
 
             logger.debug(
@@ -829,10 +1073,31 @@ async def conversation_ws(
                     user_id=user_id,
                     turn_index=current_turn,
                     text=teacher_text,
+                    country_code=session_contract.get("country_code"),
+                    target_language=session_contract.get("target_language"),
+                    bridge_language=session_contract.get("bridge_language"),
+                    script=session_contract.get("script"),
+                    dialect_label=session_contract.get("dialect_label"),
                     detected_language=hearing.language,
+                    selected_language=stt_result.get("selected_language"),
+                    code_switch_ratio=stt_result.get("code_switch_ratio"),
+                    asr_drift_type=stt_result.get("asr_drift_type"),
+                    needs_teacher_confirmation=bool(stt_result.get("needs_teacher_confirmation", False)),
+                    audio_quality=hearing.audio_quality_score,
                     audio_path=audio_path,
                     stt_confidence=hearing.confidence,
+                    teacher_verified=False,
                     audio_duration_ms=stt_result.get("duration_ms"),
+                    raw_stt=stt_result.get("selected_transcript") or teacher_text,
+                    base_candidate_transcript=next((c.get("transcript") for c in stt_result.get("candidates", []) if c.get("candidate_type") == "base_nepali"), None),
+                    english_candidate_transcript=next((c.get("transcript") for c in stt_result.get("candidates", []) if c.get("candidate_type") == "base_english"), None),
+                    target_candidate_transcript=next((c.get("transcript") for c in stt_result.get("candidates", []) if c.get("candidate_type") == "target_adapter"), None),
+                    acoustic_transcript=stt_result.get("selected_transcript") or teacher_text,
+                    normalized_transcript=normalization.get("normalized_text"),
+                    training_tier=initial_quality["training_tier"],
+                    training_eligible=initial_quality["training_eligible"],
+                    consent_training_use=bool(session_contract.get("consent_training_use", False)),
+                    candidates=stt_result.get("candidates", []),
                     raw_signals_json=teacher_capture.raw_data,
                     derived_signals_json=teacher_capture.derived_signals,
                     high_value_signals_json=teacher_capture.high_value_signals,
@@ -851,6 +1116,7 @@ async def conversation_ws(
                     derived_signals_json={
                         "response_language": behavior_policy.response_language,
                         "dialect_alignment": behavior_policy.dialect_alignment,
+                        "session_language_contract": session_contract,
                     },
                     style_signals_json={
                         "tone_style": behavior_policy.tone_style,
@@ -946,6 +1212,16 @@ async def conversation_ws(
                     )
                 await db.commit()
                 long_term = updated_structured_memory
+                await websocket.send_json(
+                    {
+                        "type": "turn_saved",
+                        "message_id": teacher_message.id,
+                        "session_id": session_id,
+                        "needs_teacher_confirmation": bool(teacher_message.needs_teacher_confirmation),
+                        "training_tier": teacher_message.training_tier,
+                        "asr_drift_type": teacher_message.asr_drift_type,
+                    }
+                )
 
             turn_index += 2
 
@@ -967,7 +1243,11 @@ async def conversation_ws(
                 teacher_message_id=teacher_message.id,
                 turn_intelligence=turn_intelligence.to_dict(),
                 audio_path=audio_path,
-                target_language=profile.native_language,
+                target_language=str(session_contract.get("target_language") or ""),
+                session_language_contract=session_contract,
+                normalized_transcript=normalization.get("normalized_text"),
+                training_tier=initial_quality["training_tier"],
+                asr_drift_type=str(stt_result.get("asr_drift_type") or "no_drift"),
             )
 
             # ── 9. TTS → send audio ───────────────────────────────────────

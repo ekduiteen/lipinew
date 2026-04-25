@@ -3,8 +3,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,7 +21,11 @@ from cache import valkey
 from config import settings
 from db.connection import engine, SessionLocal
 from models.points import TeacherPointsSummary
+import models.asr_candidate  # noqa: F401
+import models.asr_error_event  # noqa: F401
 import models.phrases  # Load phrase laboratory models
+import models.text_corpus_item  # noqa: F401
+import models.training_export  # noqa: F401
 from routes import auth, sessions, leaderboard, teachers, dashboard, phrases
 from services import learning as learning_svc
 from services import phrase_generator as phrase_gen_svc
@@ -34,6 +41,13 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("lipi.backend")
+
+
+def _run_db_migrations() -> None:
+    """Apply Alembic migrations before serving traffic."""
+    alembic_cfg = Config(str(Path(__file__).resolve().parent / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(Path(__file__).resolve().parent / "alembic"))
+    command.upgrade(alembic_cfg, "head")
 
 
 async def _summary_rebuild_loop() -> None:
@@ -71,6 +85,11 @@ async def lifespan(app: FastAPI):
                 "Set JWT_SECRET env var to a 32+ character random string."
             )
         logger.debug("JWT_SECRET validation passed")
+
+        if settings.run_db_migrations_on_startup:
+            logger.info("Applying database migrations")
+            await asyncio.to_thread(_run_db_migrations)
+            logger.info("Database migrations complete")
 
         # Validate Valkey is reachable before serving traffic
         try:

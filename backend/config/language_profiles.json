@@ -1,0 +1,373 @@
+{
+  "languages": [
+    {
+      "language_code": "ne",
+      "display_name": "Nepali",
+      "native_name": "नेपाली",
+      "country_code": "NP",
+      "inherits_from": ["ne", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "en"],
+      "target_adapter": null,
+      "adapter_status": "base",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": [
+        "preserve_original",
+        "normalize_numbers_to_spoken_form",
+        "normalize_symbols_to_spoken_form",
+        "track_punctuation"
+      ],
+      "error_taxonomy": [
+        "word_boundary_error",
+        "lexical_substitution",
+        "spelling_normalization_error",
+        "punctuation_symbol_error",
+        "unknown_error"
+      ],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.85,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.8,
+        "low_confidence": 0.55
+      },
+      "prompt_notes": [
+        "Use Nepali as a bridge only when selected or context requires it.",
+        "Preserve local dialect and honorific form."
+      ]
+    },
+    {
+      "language_code": "en",
+      "display_name": "English",
+      "native_name": "English",
+      "country_code": "GLOBAL",
+      "inherits_from": ["en"],
+      "scripts": ["latin"],
+      "default_script": "latin",
+      "bridge_languages": ["en"],
+      "target_adapter": null,
+      "adapter_status": "base",
+      "tokenizer_type": "latin",
+      "normalization_rules": [
+        "preserve_original",
+        "normalize_numbers_to_spoken_form",
+        "normalize_symbols_to_spoken_form",
+        "track_punctuation"
+      ],
+      "error_taxonomy": [
+        "lexical_substitution",
+        "spelling_normalization_error",
+        "punctuation_symbol_error",
+        "unknown_error"
+      ],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.85,
+        "silver_audio_quality": 0.72,
+        "high_confidence": 0.82,
+        "low_confidence": 0.58
+      },
+      "prompt_notes": [
+        "Use English for bridge clarification only when selected."
+      ]
+    },
+    {
+      "language_code": "newari",
+      "display_name": "Nepal Bhasha / Newari",
+      "native_name": "नेपाल भाषा",
+      "country_code": "NP",
+      "inherits_from": ["ne", "en"],
+      "scripts": ["devanagari", "ranjana", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "en"],
+      "target_adapter": "newari_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "devanagari_agglutinative",
+      "normalization_rules": [
+        "preserve_original",
+        "normalize_numbers_to_spoken_form",
+        "track_halant",
+        "track_anusvara_chandrabindu",
+        "track_word_boundaries"
+      ],
+      "error_taxonomy": [
+        "word_boundary_error",
+        "halant_cluster_error",
+        "anusvara_chandrabindu_error",
+        "lexical_substitution",
+        "function_word_particle_error",
+        "wrong_language_detection",
+        "code_switch_misread",
+        "noise_overlap_error",
+        "dialect_variant_marked_wrong"
+      ],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.86,
+        "silver_audio_quality": 0.72,
+        "high_confidence": 0.78,
+        "low_confidence": 0.52
+      },
+      "prompt_notes": [
+        "Preserve dialect form.",
+        "Do not collapse target into Nepali."
+      ]
+    },
+    {
+      "language_code": "mai",
+      "display_name": "Maithili",
+      "native_name": "मैथिली",
+      "country_code": "NP",
+      "inherits_from": ["ne", "hi", "en"],
+      "scripts": ["devanagari", "tirhuta", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "hi", "en"],
+      "target_adapter": "maithili_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": [
+        "preserve_original",
+        "normalize_numbers_to_spoken_form",
+        "track_word_boundaries",
+        "track_anusvara_chandrabindu"
+      ],
+      "error_taxonomy": [
+        "word_boundary_error",
+        "anusvara_chandrabindu_error",
+        "lexical_substitution",
+        "wrong_language_detection",
+        "dialect_variant_marked_wrong"
+      ],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.84,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.76,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": [
+        "Watch Hindi and Nepali drift.",
+        "Preserve nasalization and Tirhuta variants."
+      ]
+    },
+    {
+      "language_code": "bho",
+      "display_name": "Bhojpuri",
+      "native_name": "भोजपुरी",
+      "country_code": "NP",
+      "inherits_from": ["ne", "hi", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "hi", "en"],
+      "target_adapter": "bhojpuri_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": [
+        "preserve_original",
+        "normalize_numbers_to_spoken_form",
+        "track_word_boundaries"
+      ],
+      "error_taxonomy": [
+        "word_boundary_error",
+        "lexical_substitution",
+        "wrong_language_detection",
+        "dialect_variant_marked_wrong"
+      ],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.84,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.76,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": [
+        "Watch Hindi drift and boundary errors."
+      ]
+    },
+    {
+      "language_code": "taj",
+      "display_name": "Tamang",
+      "native_name": "तामाङ",
+      "country_code": "NP",
+      "inherits_from": ["ne", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "en"],
+      "target_adapter": "tamang_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": [
+        "preserve_original",
+        "normalize_numbers_to_spoken_form",
+        "track_word_boundaries"
+      ],
+      "error_taxonomy": [
+        "lexical_substitution",
+        "wrong_language_detection",
+        "code_switch_misread",
+        "noise_overlap_error"
+      ],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.85,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.77,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": [
+        "Watch Nepali drift and acoustic uncertainty."
+      ]
+    },
+    {
+      "language_code": "gurung",
+      "display_name": "Gurung",
+      "native_name": "गुरुङ",
+      "country_code": "NP",
+      "inherits_from": ["ne", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "en"],
+      "target_adapter": "gurung_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": ["preserve_original", "normalize_numbers_to_spoken_form", "track_word_boundaries"],
+      "error_taxonomy": ["lexical_substitution", "wrong_language_detection", "code_switch_misread", "unknown_error"],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.85,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.77,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": ["Preserve local variant and avoid forcing Nepali."]
+    },
+    {
+      "language_code": "sherpa",
+      "display_name": "Sherpa",
+      "native_name": "शेर्पा",
+      "country_code": "NP",
+      "inherits_from": ["ne", "en"],
+      "scripts": ["devanagari", "latin", "tibetan"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "en"],
+      "target_adapter": "sherpa_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "mixed",
+      "normalization_rules": ["preserve_original", "normalize_numbers_to_spoken_form", "track_word_boundaries"],
+      "error_taxonomy": ["lexical_substitution", "wrong_language_detection", "code_switch_misread", "unknown_error"],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.85,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.77,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": ["Preserve Tibetan-influenced forms where supplied."]
+    },
+    {
+      "language_code": "tharu",
+      "display_name": "Tharu",
+      "native_name": "थारू",
+      "country_code": "NP",
+      "inherits_from": ["ne", "hi", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "hi", "en"],
+      "target_adapter": "tharu_adapter_v1",
+      "adapter_status": "not_ready",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": ["preserve_original", "normalize_numbers_to_spoken_form", "track_word_boundaries"],
+      "error_taxonomy": ["lexical_substitution", "wrong_language_detection", "dialect_variant_marked_wrong", "unknown_error"],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.84,
+        "silver_audio_quality": 0.7,
+        "high_confidence": 0.76,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": ["Keep domain and region labels."]
+    },
+    {
+      "language_code": "hi",
+      "display_name": "Hindi",
+      "native_name": "हिन्दी",
+      "country_code": "IN",
+      "inherits_from": ["hi", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["hi", "en"],
+      "target_adapter": null,
+      "adapter_status": "base",
+      "tokenizer_type": "devanagari",
+      "normalization_rules": ["preserve_original", "normalize_numbers_to_spoken_form", "track_word_boundaries"],
+      "error_taxonomy": ["word_boundary_error", "lexical_substitution", "wrong_language_detection", "unknown_error"],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.85,
+        "silver_audio_quality": 0.72,
+        "high_confidence": 0.8,
+        "low_confidence": 0.55
+      },
+      "prompt_notes": ["Use Hindi only when selected or explicitly used as bridge."]
+    },
+    {
+      "language_code": "mixed",
+      "display_name": "Mixed / Code-switching",
+      "native_name": "Mixed / Code-switching",
+      "country_code": "GLOBAL",
+      "inherits_from": ["ne", "en"],
+      "scripts": ["devanagari", "latin"],
+      "default_script": "devanagari",
+      "bridge_languages": ["ne", "en", "hi"],
+      "target_adapter": null,
+      "adapter_status": "experimental",
+      "tokenizer_type": "mixed",
+      "normalization_rules": ["preserve_original", "track_word_boundaries", "track_punctuation"],
+      "error_taxonomy": ["code_switch_misread", "wrong_language_detection", "lexical_substitution", "unknown_error"],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.88,
+        "silver_audio_quality": 0.72,
+        "high_confidence": 0.8,
+        "low_confidence": 0.5
+      },
+      "prompt_notes": ["Require per-token or per-phrase language marking where possible."]
+    },
+    {
+      "language_code": "other",
+      "display_name": "Other",
+      "native_name": "Other",
+      "country_code": "GLOBAL",
+      "inherits_from": ["en"],
+      "scripts": ["latin", "devanagari"],
+      "default_script": "latin",
+      "bridge_languages": ["en"],
+      "target_adapter": null,
+      "adapter_status": "not_ready",
+      "tokenizer_type": "unknown",
+      "normalization_rules": ["preserve_original", "track_punctuation"],
+      "error_taxonomy": ["wrong_language_detection", "lexical_substitution", "unknown_error"],
+      "min_gold_hours_for_experimental_adapter": 5,
+      "min_gold_hours_for_production_adapter": 50,
+      "quality_thresholds": {
+        "gold_audio_quality": 0.88,
+        "silver_audio_quality": 0.75,
+        "high_confidence": 0.82,
+        "low_confidence": 0.55
+      },
+      "prompt_notes": ["Treat teacher correction as the only reliable source of truth."]
+    }
+  ]
+}

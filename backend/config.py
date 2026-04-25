@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+asyncpg://lipi:lipi@postgres:5432/lipi"
+    run_db_migrations_on_startup: bool = True
 
     # Valkey (NOT Redis)
     valkey_url: str = "valkey://valkey:6379/0"

@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
   }
 
   const targetUrl = `${BACKEND}/api/sessions`;
+  const body = await req.text();
 
   try {
     const res = await fetch(targetUrl, {
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
+      body,
     });
 
     const data = await res.text();

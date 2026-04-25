@@ -1,0 +1,80 @@
+{
+  "countries": [
+    {
+      "country_code": "NP",
+      "country_name": "Nepal",
+      "base_asr_languages": ["ne", "en"],
+      "default_bridge_languages": ["ne", "en"],
+      "default_script": "devanagari",
+      "supported_target_languages": [
+        "ne",
+        "en",
+        "newari",
+        "mai",
+        "bho",
+        "taj",
+        "gurung",
+        "sherpa",
+        "tharu",
+        "hi",
+        "mixed",
+        "other"
+      ],
+      "regional_base_language_options": {
+        "madhesh": ["ne", "hi", "mai", "bho", "en"],
+        "kathmandu_valley": ["ne", "newari", "en"],
+        "mountain": ["ne", "sherpa", "taj", "en"]
+      },
+      "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+      "asr_strategy": "country_base_plus_english_plus_target_adapter"
+    },
+    {
+      "country_code": "IN",
+      "country_name": "India",
+      "base_asr_languages": ["hi", "en"],
+      "default_bridge_languages": ["hi", "en"],
+      "default_script": "devanagari",
+      "supported_target_languages": [],
+      "regional_base_language_options": {
+        "north": ["hi", "en"],
+        "east": ["hi", "en"],
+        "south": ["en", "hi"]
+      },
+      "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+      "asr_strategy": "country_base_plus_english_plus_target_adapter"
+    },
+    {
+      "country_code": "JP",
+      "country_name": "Japan",
+      "base_asr_languages": ["ja", "en"],
+      "default_bridge_languages": ["ja", "en"],
+      "default_script": "japanese",
+      "supported_target_languages": [],
+      "regional_base_language_options": {},
+      "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+      "asr_strategy": "country_base_plus_english_plus_target_adapter"
+    },
+    {
+      "country_code": "ID",
+      "country_name": "Indonesia",
+      "base_asr_languages": ["id", "en"],
+      "default_bridge_languages": ["id", "en"],
+      "default_script": "latin",
+      "supported_target_languages": [],
+      "regional_base_language_options": {},
+      "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+      "asr_strategy": "country_base_plus_english_plus_target_adapter"
+    },
+    {
+      "country_code": "PH",
+      "country_name": "Philippines",
+      "base_asr_languages": ["fil", "en"],
+      "default_bridge_languages": ["fil", "en"],
+      "default_script": "latin",
+      "supported_target_languages": [],
+      "regional_base_language_options": {},
+      "drift_policy": "prefer_teacher_selected_language_over_auto_detect",
+      "asr_strategy": "country_base_plus_english_plus_target_adapter"
+    }
+  ]
+}

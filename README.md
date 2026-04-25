@@ -208,6 +208,8 @@ This repo used to have many overlapping setup/status/handover files. The canonic
   Why LIPI exists and how the student-teacher dynamic should feel.
 - [DEV_ONBOARDING.md](DEV_ONBOARDING.md)
   Architecture, services, runtime layout, turn flow, and developer workflow.
+- [docs/wiki/README.md](docs/wiki/README.md)
+  Connected project wiki for context, subsystem maps, API surface, data model, testing, and ops.
 - [OPERATIONS.md](OPERATIONS.md)
   Actual deployment, restart, health-check, and remote-server operations guide.
 - [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)

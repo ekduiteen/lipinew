@@ -1,9 +1,9 @@
 # LIPI — Developer Onboarding Guide
 
 > **Living document. Update rule: every PR that adds a service, endpoint, pattern, or architectural decision MUST include a corresponding update to this file. No exceptions. If you shipped it and didn't document it here, it didn't happen.**
-> Last synced: 2026-04-18 — Turn intelligence layer live; per-turn intent recognition, entity extraction, keyterm boosting, transcript repair, dashboard visibility, and async learning enrichment all wired into the teach loop.
+> Last synced: 2026-04-25 — Project wiki added as the connected map across product, backend, frontends, ML, data, APIs, testing, and ops.
 
-> **Docs rule:** this file, `README.md`, `OPERATIONS.md`, `CLAUDE.md`, `DATABASE_SCHEMA.md`, `PHASE_ROADMAP.md`, and `HANDOVER_TO_CODEX.md` are the canonical docs. Do not add another status/quickstart/handover summary file unless there is a genuinely new audience and no existing canonical doc fits.
+> **Docs rule:** this file, `README.md`, `docs/wiki/README.md`, `OPERATIONS.md`, `CLAUDE.md`, `DATABASE_SCHEMA.md`, `PHASE_ROADMAP.md`, and `HANDOVER_TO_CODEX.md` are the canonical docs. Do not add another status/quickstart/handover summary file unless there is a genuinely new audience and no existing canonical doc fits.
 
 ---
 
@@ -23,6 +23,35 @@ There are now two collection lanes:
 - `Phrase Lab`: structured phrase and variation capture for cleaner supervised language data
 
 **If a feature doesn't serve data collection or teacher retention, it doesn't ship.**
+
+### Country-Anchored ASR Strategy
+
+LIPI no longer treats unrestricted Whisper auto-detection as truth. Each session stores a `session_language_contract` chosen by the teacher: `country_code`, `target_language`, `script`, `bridge_language`, `dialect_label`, `teaching_mode`, code-switch allowance, and training consent.
+
+For Nepal, `base_asr_languages = ["ne", "en"]`. Nepali and English are ASR anchors, not automatic targets. The teacher-selected target language is the learning target, whether it is Nepali, Nepal Bhasha / Newari, Maithili, Bhojpuri, Tamang, Gurung, Sherpa, Tharu, Hindi, English, mixed, or other.
+
+Key files:
+- `backend/config/country_profiles.json` and `backend/services/country_registry.py`
+- `backend/config/language_profiles.json` and `backend/services/language_registry.py`
+- `backend/services/stt.py` and `ml/stt.py` for ASR candidate routing
+- `backend/services/asr_drift.py` for drift detection
+- `backend/services/text_normalization.py` for preserving raw text plus normalized training text
+- `backend/services/asr_error_classifier.py` for Error Intelligence
+- `backend/services/data_quality.py` for gold/silver/bronze/rejected tiering
+- `backend/services/training_exporter.py` and `scripts/export_training_data.py`
+- `backend/services/adapter_readiness.py` and `backend/services/active_prompt_planner.py`
+
+ASR returns structured candidates:
+- `base_nepali`
+- `base_english`
+- `target_adapter` when available
+- `whisper_auto` as optional evidence, never sole truth
+
+Teacher correction is the highest-value signal. Accept/edit/wrong-language/skip actions update `messages`, create `asr_error_events`, assign a training tier, and add verified text to `text_corpus_items` when useful. Only gold and selected silver exports are eligible for training; bronze is archive/review; rejected is never exported for model training.
+
+Dashboard language-adaptive metrics live at `GET /api/dashboard/language-adaptive`: language overview, ASR drift, error intelligence, adapter readiness, teacher contribution, and data quality.
+
+Full design: `docs/LANGUAGE_ADAPTIVE_ASR.md`.
 
 ---
 

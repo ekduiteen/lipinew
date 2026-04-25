@@ -12,11 +12,12 @@
 
 export interface WSHandlers {
   onOpen?: () => void;
-  onTranscript: (text: string, language?: string, confidence?: number) => void;
+  onTranscript: (text: string, language?: string, confidence?: number, meta?: Record<string, unknown>) => void;
   onToken: (text: string) => void;
   onTTSStart: (text: string, turn: number) => void;
   onAudio: (wav: ArrayBuffer) => void;
   onTTSEnd: () => void;
+  onTurnSaved?: (payload: Record<string, unknown>) => void;
   onEmptyAudio: () => void;
   onError: (err: Event) => void;
   onClose: (ev: CloseEvent) => void;
@@ -113,7 +114,11 @@ export class LipiWebSocket {
           msg.text as string,
           msg.language as string | undefined,
           msg.confidence as number | undefined,
+          msg,
         );
+        break;
+      case "turn_saved":
+        this.handlers.onTurnSaved?.(msg);
         break;
       case "tts_start":
         this._expectingAudio = true;

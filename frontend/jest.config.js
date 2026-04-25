@@ -10,6 +10,8 @@ const config = {
     '^@/(.*)$': '<rootDir>/$1',
   },
   testMatch: ['**/__tests__/**/*.test.{ts,tsx}'],
+  modulePathIgnorePatterns: ['<rootDir>/.next'],
+  testPathIgnorePatterns: ['<rootDir>/.next', '<rootDir>/node_modules'],
   collectCoverageFrom: [
     'app/**/*.{ts,tsx}',
     'lib/**/*.{ts,tsx}',

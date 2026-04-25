@@ -1,7 +1,7 @@
 # LIPI Documentation Index
 
-**Last Updated**: 2026-04-17  
-**Status**: Complete audit and fix of all 25 documentation files
+**Last Updated**: 2026-04-25  
+**Status**: Complete documentation map plus project wiki
 
 ---
 
@@ -9,8 +9,9 @@
 
 ### For Getting Started
 1. **[README.md](README.md)** — Start here: What LIPI is, current state, intelligence layer overview
-2. **[CLAUDE.md](CLAUDE.md)** — Engineering master brief: product vision, architecture, constraints, forbidden patterns
-3. **[DEV_ONBOARDING.md](DEV_ONBOARDING.md)** — Complete developer guide: setup, codebase map (32 services), turn flow, patterns
+2. **[docs/wiki/README.md](docs/wiki/README.md)** — Project wiki: connected map across product, backend, frontends, ML, data, APIs, testing, and ops
+3. **[CLAUDE.md](CLAUDE.md)** — Engineering master brief: product vision, architecture, constraints, forbidden patterns
+4. **[DEV_ONBOARDING.md](DEV_ONBOARDING.md)** — Complete developer guide: setup, codebase map (32 services), turn flow, patterns
 
 ### For Deployment & Operations
 1. **[OPERATIONS.md](OPERATIONS.md)** — How to run LIPI: local setup, remote SSH, health checks, restart commands

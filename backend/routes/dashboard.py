@@ -16,6 +16,7 @@ from config import settings
 from db.connection import get_db
 from dependencies.auth import get_current_user
 from services import speaker_clustering as speaker_clustering_svc
+from services.adapter_readiness import compute_adapter_readiness
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -95,6 +96,15 @@ class DashboardOverview(BaseModel):
     speaker_embeddings: dict
     recent_samples: list[RecentSample]
     turn_intelligence: TurnIntelligenceReport
+
+
+class LanguageAdaptiveDashboard(BaseModel):
+    language_overview: list[dict]
+    asr_drift: list[dict]
+    error_intelligence: list[dict]
+    adapter_readiness: list[dict]
+    teacher_contribution: list[dict]
+    data_quality: list[dict]
 
 
 _CONFUSED_REPLY_MARKERS = (
@@ -543,4 +553,201 @@ async def get_dashboard_overview(
             per_language_extraction_quality=per_language_extraction_quality,
             recent_turns=recent_turns,
         ),
+    )
+
+
+@router.get("/language-adaptive", response_model=LanguageAdaptiveDashboard)
+async def get_language_adaptive_dashboard(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LanguageAdaptiveDashboard:
+    del user_id
+
+    overview_rows = await db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(target_language, 'unknown') AS language_code,
+                COALESCE(training_tier, 'bronze') AS training_tier,
+                COUNT(*) AS utterances,
+                SUM(COALESCE(audio_duration_ms, 0)) / 3600000.0 AS audio_hours
+            FROM messages
+            WHERE role = 'teacher'
+            GROUP BY COALESCE(target_language, 'unknown'), COALESCE(training_tier, 'bronze')
+            ORDER BY language_code, training_tier
+            """
+        )
+    )
+    by_language: dict[str, dict] = {}
+    for row in overview_rows.mappings().all():
+        item = by_language.setdefault(
+            str(row["language_code"]),
+            {
+                "language_code": str(row["language_code"]),
+                "clean_hours": 0.0,
+                "gold_utterances": 0,
+                "silver_utterances": 0,
+                "bronze_archive_size": 0,
+                "rejected_samples": 0,
+            },
+        )
+        tier = str(row["training_tier"] or "bronze")
+        utterances = int(row["utterances"] or 0)
+        hours = float(row["audio_hours"] or 0.0)
+        if tier in {"gold", "silver"}:
+            item["clean_hours"] += hours
+        if tier == "gold":
+            item["gold_utterances"] = utterances
+        elif tier == "silver":
+            item["silver_utterances"] = utterances
+        elif tier == "rejected":
+            item["rejected_samples"] = utterances
+        else:
+            item["bronze_archive_size"] += utterances
+
+    drift_rows = await db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(target_language, 'unknown') AS language_code,
+                COALESCE(asr_drift_type, 'no_drift') AS drift_type,
+                COUNT(*) AS count
+            FROM messages
+            WHERE role = 'teacher'
+            GROUP BY COALESCE(target_language, 'unknown'), COALESCE(asr_drift_type, 'no_drift')
+            ORDER BY language_code, count DESC
+            """
+        )
+    )
+    asr_drift = [
+        {
+            "language_code": str(row["language_code"]),
+            "drift_type": str(row["drift_type"]),
+            "count": int(row["count"] or 0),
+        }
+        for row in drift_rows.mappings().all()
+    ]
+
+    error_rows = await db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(target_language, 'unknown') AS language_code,
+                COALESCE(script, 'unknown') AS script,
+                COALESCE(error_type, 'unknown_error') AS error_type,
+                COALESCE(severity, 'medium') AS severity,
+                COUNT(*) AS count
+            FROM asr_error_events
+            GROUP BY COALESCE(target_language, 'unknown'), COALESCE(script, 'unknown'),
+                     COALESCE(error_type, 'unknown_error'), COALESCE(severity, 'medium')
+            ORDER BY count DESC
+            LIMIT 200
+            """
+        )
+    )
+    error_intelligence = [
+        {
+            "language_code": str(row["language_code"]),
+            "script": str(row["script"]),
+            "error_type": str(row["error_type"]),
+            "severity": str(row["severity"]),
+            "count": int(row["count"] or 0),
+        }
+        for row in error_rows.mappings().all()
+    ]
+
+    teacher_rows = await db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(target_language, 'unknown') AS language_code,
+                teacher_id,
+                COUNT(*) AS corrections_provided,
+                SUM(CASE WHEN training_tier = 'gold' THEN 1 ELSE 0 END) AS accepted_gold_samples,
+                COUNT(DISTINCT COALESCE(dialect_label, 'unknown')) AS dialect_coverage
+            FROM messages
+            WHERE role = 'teacher' AND teacher_verified = true
+            GROUP BY COALESCE(target_language, 'unknown'), teacher_id
+            ORDER BY accepted_gold_samples DESC, corrections_provided DESC
+            LIMIT 50
+            """
+        )
+    )
+    teacher_contribution = [
+        {
+            "language_code": str(row["language_code"]),
+            "teacher_id": str(row["teacher_id"]),
+            "corrections_provided": int(row["corrections_provided"] or 0),
+            "accepted_gold_samples": int(row["accepted_gold_samples"] or 0),
+            "dialect_coverage": int(row["dialect_coverage"] or 0),
+        }
+        for row in teacher_rows.mappings().all()
+    ]
+
+    quality_rows = await db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(target_language, 'unknown') AS language_code,
+                COALESCE(training_tier, 'bronze') AS training_tier,
+                COUNT(*) AS count,
+                AVG(audio_quality) AS avg_audio_quality,
+                AVG(stt_confidence) AS avg_stt_confidence,
+                AVG(CASE WHEN teacher_verified THEN 1.0 ELSE 0.0 END) AS correction_rate
+            FROM messages
+            WHERE role = 'teacher'
+            GROUP BY COALESCE(target_language, 'unknown'), COALESCE(training_tier, 'bronze')
+            ORDER BY language_code, training_tier
+            """
+        )
+    )
+    data_quality = [
+        {
+            "language_code": str(row["language_code"]),
+            "training_tier": str(row["training_tier"]),
+            "count": int(row["count"] or 0),
+            "avg_audio_quality": float(row["avg_audio_quality"] or 0.0),
+            "avg_stt_confidence": float(row["avg_stt_confidence"] or 0.0),
+            "correction_rate": float(row["correction_rate"] or 0.0),
+        }
+        for row in quality_rows.mappings().all()
+    ]
+
+    adapter_readiness = []
+    for language_code, item in by_language.items():
+        gold_hours = float(item["clean_hours"])
+        gold_utterances = int(item["gold_utterances"])
+        teachers = {
+            row["teacher_id"]
+            for row in teacher_contribution
+            if row["language_code"] == language_code
+        }
+        language_errors = [row for row in error_intelligence if row["language_code"] == language_code]
+        dominant_error = language_errors[0]["error_type"] if language_errors else "unknown_error"
+        total_drift = sum(row["count"] for row in asr_drift if row["language_code"] == language_code)
+        drift_hits = sum(row["count"] for row in asr_drift if row["language_code"] == language_code and row["drift_type"] != "no_drift")
+        adapter_readiness.append(
+            compute_adapter_readiness(
+                country_code="NP",
+                target_language=language_code,
+                gold_audio_hours=gold_hours,
+                silver_audio_hours=0.0,
+                gold_utterance_count=gold_utterances,
+                unique_teacher_count=len(teachers),
+                speaker_diversity_score=min(len(teachers) / 10.0, 1.0),
+                dialect_diversity_score=0.0,
+                correction_rate=0.0,
+                drift_rate=drift_hits / max(total_drift, 1),
+                dominant_error_type=dominant_error,
+                domain_coverage_score=0.0,
+            )
+        )
+
+    return LanguageAdaptiveDashboard(
+        language_overview=list(by_language.values()),
+        asr_drift=asr_drift,
+        error_intelligence=error_intelligence,
+        adapter_readiness=adapter_readiness,
+        teacher_contribution=teacher_contribution,
+        data_quality=data_quality,
     )

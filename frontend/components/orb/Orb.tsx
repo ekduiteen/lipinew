@@ -109,6 +109,7 @@ export default function Orb({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    if (typeof ctx.moveTo !== "function" || typeof ctx.lineTo !== "function") return;
 
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
@@ -182,6 +183,7 @@ export default function Orb({
 
   return (
     <div
+      data-state={state}
       style={{
         position: "relative",
         width: size,
@@ -245,6 +247,13 @@ export default function Orb({
       />
 
       {/* Canvas: state-dependent overlay rings/bars/arc */}
+      {state === "listening" && (
+        <>
+          <span className="orb-ring" aria-hidden="true" />
+          <span className="orb-ring" aria-hidden="true" />
+          <span className="orb-ring" aria-hidden="true" />
+        </>
+      )}
       <canvas
         ref={canvasRef}
         style={{

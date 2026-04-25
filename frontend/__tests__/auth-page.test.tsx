@@ -21,7 +21,6 @@ jest.mock("@/lib/api", () => ({
 
 describe("AuthPage rendering", () => {
   beforeEach(() => {
-    jest.resetModules()
     jest.clearAllMocks()
     // Set NODE_ENV so the demo button renders
     Object.defineProperty(process.env, "NODE_ENV", { value: "development", writable: true })
